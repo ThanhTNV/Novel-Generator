@@ -50,15 +50,27 @@ def load_chapter_template() -> str:
     return _load_file(Path(settings.prompts_dir) / "chapter-prompt.md")
 
 
-def _format_hits(hits: List[Dict]) -> str:
+def _estimate_tokens(text: str) -> int:
+    """Rough token estimate: ~1 token per 4 chars for English, ~1 per 2 for Vietnamese."""
+    return max(len(text) // 3, len(text.split()))
+
+
+def _format_hits(hits: List[Dict], max_tokens: Optional[int] = None) -> str:
     if not hits:
         return "(No relevant context found in vector store.)"
+    budget = max_tokens or settings.max_context_tokens
     parts = []
+    running = 0
     for i, h in enumerate(hits, 1):
         meta = h.get("metadata", {})
         source = meta.get("source", "unknown")
-        parts.append(f"[{i}] (source: {source})\n{h['text']}")
-    return "\n\n".join(parts)
+        entry = f"[{i}] (source: {source})\n{h['text']}"
+        cost = _estimate_tokens(entry)
+        if running + cost > budget:
+            break
+        parts.append(entry)
+        running += cost
+    return "\n\n".join(parts) if parts else "(Context trimmed due to token budget.)"
 
 
 class NovelAgent:
@@ -83,6 +95,14 @@ class NovelAgent:
             sections.append(f"## Skill Guidance\n\n{skills}")
         return "\n\n---\n\n".join(sections)
 
+    @staticmethod
+    def build_revise_system_prompt() -> str:
+        return (
+            "You are an expert novelist revising a draft. "
+            "Maintain consistency with all established characters, settings, and plot. "
+            "Follow the revision instructions precisely. Return the complete revised chapter."
+        )
+
     def build_chapter_prompt(
         self,
         chapter_instructions: str,
@@ -95,8 +115,6 @@ class NovelAgent:
 
         prompt = template
         prompt = prompt.replace("{{ retrieved_chunks }}", retrieved_context)
-        prompt = prompt.replace("{{ rules }}", load_rules())
-        prompt = prompt.replace("{{ skills }}", load_skills())
         prompt = prompt.replace("{{ story_summary }}", story_summary or "(Start of story)")
         prompt = prompt.replace("{{ chapter_instructions }}", chapter_instructions)
         prompt = prompt.replace("{{ target_words }}", str(target))
@@ -118,14 +136,14 @@ class NovelAgent:
         all_hits.extend(general_hits)
 
         if characters:
-            char_hits = retrieve_for_characters(characters, top_k=min(k, 5))
+            char_hits = retrieve_for_characters(characters, top_k=min(k, 3))
             all_hits.extend(char_hits)
 
         if locations:
-            loc_hits = retrieve_for_locations(locations, top_k=min(k, 5))
+            loc_hits = retrieve_for_locations(locations, top_k=min(k, 3))
             all_hits.extend(loc_hits)
 
-        plot_hits = retrieve_for_plot(top_k=min(k, 5))
+        plot_hits = retrieve_for_plot(top_k=min(k, 3))
         all_hits.extend(plot_hits)
 
         seen = set()
@@ -203,6 +221,37 @@ class NovelAgent:
         ):
             yield token
 
+    @staticmethod
+    def _fit_draft_to_budget(draft: str, budget_tokens: int) -> str:
+        """Keep beginning + end of draft if it exceeds the token budget."""
+        est = _estimate_tokens(draft)
+        if est <= budget_tokens:
+            return draft
+        words = draft.split()
+        keep = int(budget_tokens * 0.75)
+        half = keep // 2
+        head = " ".join(words[:half])
+        tail = " ".join(words[-half:])
+        return f"{head}\n\n[... middle truncated for token budget ...]\n\n{tail}"
+
+    def _build_revise_user_prompt(self, draft: str, feedback: str) -> str:
+        system_est = _estimate_tokens(self.build_revise_system_prompt())
+        feedback_est = _estimate_tokens(feedback)
+        overhead = 120
+        draft_budget = settings.max_context_tokens * 2 - system_est - feedback_est - overhead
+        draft_budget = max(draft_budget, 1000)
+
+        trimmed = self._fit_draft_to_budget(draft, draft_budget)
+        return (
+            "## Current Draft\n\n"
+            f"{trimmed}\n\n"
+            "## Revision Instructions\n\n"
+            f"{feedback}\n\n"
+            "## Task\n\n"
+            "Revise the draft above according to the instructions. "
+            "Return the complete revised chapter."
+        )
+
     async def revise_chapter(
         self,
         draft: str,
@@ -211,19 +260,8 @@ class NovelAgent:
         max_tokens: int = 4096,
     ) -> str:
         """Revise a draft based on user feedback."""
-        system = self.build_system_prompt()
-
-        user = (
-            "## Current Draft\n\n"
-            f"{draft}\n\n"
-            "## Revision Instructions\n\n"
-            f"{feedback}\n\n"
-            "## Task\n\n"
-            "Revise the draft above according to the feedback. "
-            "Maintain all established character, plot, and world details. "
-            "Apply all active rules and skill guidance. "
-            "Return the complete revised chapter."
-        )
+        system = self.build_revise_system_prompt()
+        user = self._build_revise_user_prompt(draft, feedback)
 
         return await self.llm.generate(
             system_prompt=system,
@@ -240,19 +278,8 @@ class NovelAgent:
         max_tokens: int = 4096,
     ) -> AsyncIterator[str]:
         """Streaming revision."""
-        system = self.build_system_prompt()
-
-        user = (
-            "## Current Draft\n\n"
-            f"{draft}\n\n"
-            "## Revision Instructions\n\n"
-            f"{feedback}\n\n"
-            "## Task\n\n"
-            "Revise the draft above according to the feedback. "
-            "Maintain all established character, plot, and world details. "
-            "Apply all active rules and skill guidance. "
-            "Return the complete revised chapter."
-        )
+        system = self.build_revise_system_prompt()
+        user = self._build_revise_user_prompt(draft, feedback)
 
         async for token in self.llm.generate_stream(
             system_prompt=system,

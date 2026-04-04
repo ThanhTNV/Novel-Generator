@@ -1,48 +1,61 @@
-# Main Story Outline
+# Cốt truyện chính – Đồ Lục
 
-## Title: The Architect's Draft
+## Tiêu đề: Đồ Lục
 
-## Premise
-In a world built by cosmic Architects and shattered by an event called the Sundering, former archivist Elara Voss hunts for her missing brother — the only person who may have understood the Pale Threshold, a rift between reality and something else. Pursued by the Pale Architect, who needs what Elara's brother knew, she must cross a broken landscape with reluctant guide Theron Ashwick, confronting the truth that saving her brother might mean letting the world be rewritten.
+## Theme chính
 
-## Act Structure
+"Kiến thức là sức mạnh, nhưng cũng là lời nguyền chết chóc."
 
-### Act I: The Unraveling (Chapters 1-8)
-- Elara is dismissed from the Athenaeum after being caught with forbidden texts about the Sundering.
-- She discovers her brother's hidden journal, which describes the Pale Threshold as a doorway, not a wound.
-- The Pale Architect appears in Verenthia, causing reality distortions in the Crown district.
-- Elara flees the city with the journal, hiring Theron Ashwick as a guide through the Ironspine Mountains.
-- Theron's past with the Ironveil Company complicates their passage — he's wanted in the border territories.
-- They cross the mountains via the Smuggler's Cut, surviving an avalanche triggered by magical disturbance.
-- Act I ends with them reaching the edge of the Ashenmere, where the journal's next clue points.
+Khám phá bản thân, tham vọng con người, sự cô đơn của kẻ đi trước, và bí mật lớn hơn cả vũ trụ.
 
-### Act II: The Descent (Chapters 9-18)
-- The Ashenmere is worse than legends suggest. Reality is unstable here — distances shift, time loops.
-- Elara and Theron find survivors of the old Merethas community, living in fear of the Threshold's influence.
-- Theron confronts his guilt: the community includes people he was supposed to save years ago.
-- Elara deciphers more of the journal, learning her brother walked willingly into the Threshold.
-- The Pale Architect tracks them. Not violent, but offers Elara a choice: help him find the Five Keystones and he'll return her brother. Refuse, and Caelum remains lost.
-- Elara discovers the Keystones are structural supports of reality — removing them would let the Architect "revise" the world.
-- She refuses the deal. The Architect withdraws, patient, confident she'll change her mind.
-- Act II ends with Elara standing before the Pale Threshold, hearing her brother's voice.
+## Tone truyện
 
-### Act III: The Rewriting (Chapters 19-25)
-- Elara enters the Threshold. The space beyond is the Architect's workshop — a place where reality is malleable.
-- She finds Caelum, alive but changed. He's been studying the Architect's framework from the inside.
-- Caelum reveals the Architect isn't wrong — the world IS a draft with fundamental flaws causing suffering.
-- The conflict becomes philosophical: rewrite the world (erasing people as they exist) or accept an imperfect reality.
-- Theron enters the Threshold to help Elara, bringing his pragmatism against ideological extremes.
-- Climax: Elara uses her archival knowledge to propose a third option — not rewriting but revising, patching the flaws without erasing what exists.
-- The Pale Architect considers this but rejects it as insufficient. Final confrontation.
-- Resolution: Elara and Caelum alter the Threshold's function — from a doorway for rewriting to a bridge for gradual revision. The Architect is not defeated but contained, forced to work within the existing world's framework.
-- Epilogue: Elara returns to a changed Verenthia. The Athenaeum's forbidden archives are opened. Theron stays. The world is imperfect but healing.
+- **Phần đầu (Arc 1–2)**: Urban fantasy + mystery + horror nhẹ. Bối cảnh trường học, đời sinh viên. Rợn người, tò mò, kịch tính nhẹ.
+- **Phần giữa (Arc 3–4)**: Survival horror + hành động khốc liệt trong các Dimension Pocket. Máu, mồ hôi, và quyết định sinh tử.
+- **Phần cuối (Arc 5)**: Epic sci-fi + tranh giành chủng tộc + triết lý vũ trụ. Quy mô mở rộng ra toàn vũ trụ.
 
-## Themes
-- The tension between perfection and imperfection.
-- Revision vs. destruction — editing life vs. starting over.
-- Found family and chosen loyalty.
-- The cost of knowledge and the responsibility that comes with it.
-- Redemption through action, not absolution.
+## Cấu trúc Arc (5 arc lớn)
 
-## Tone
-Gothic fantasy with literary sensibility. Dark atmosphere punctuated by warmth between characters. Intellectual tension alongside emotional stakes.
+### Arc 1: Lời mời từ bóng tối (Chương 1–5)
+- Văn Tâm nhận Đồ Lục từ di vật của thầy Cao.
+- Sự kiện sương xám bao trùm trường học.
+- Khám phá vali của thầy Cao, phát hiện ghi chú về 108 Vật Chất.
+- Bước vào không gian Vật Chất đầu tiên (Dimension Pocket #1).
+- **Cao trào**: Tâm suýt chết trong Dimension Pocket đầu tiên, nhận ra đây không phải trò chơi.
+
+### Arc 2: Những không gian đầu tiên (Chương 6–15)
+- Tâm và Khang khám phá 4–5 Vật Chất đầu tiên.
+- Học cách sống sót trong các Dimension Pocket.
+- Bắt đầu nhận ra có kẻ khác cũng đang săn Vật Chất.
+- Mối quan hệ Tâm–Khang được thử thách.
+- **Cao trào**: Phát hiện dấu vết của chủng tộc trí tuệ khác trong một Dimension Pocket.
+
+### Arc 3: Những kẻ săn cùng (Chương 16–25)
+- Gặp các chủng tộc trí tuệ ngoài Trái Đất lần đầu.
+- Xung đột đầu tiên giữa các phe.
+- Đồ Lục bắt đầu tiết lộ bí mật — các trang trắng dần hiện chữ.
+- **Cao trào**: Một chủng tộc khác chiếm được Vật Chất mà Tâm đang săn.
+
+### Arc 4: Vật Chất hữu hạn (Chương 26–35)
+- Các Vật Chất cuối cùng xuất hiện — số lượng hữu hạn, không đủ cho tất cả chủng tộc.
+- Chiến tranh tranh giành quy mô lớn.
+- Stake cá nhân (Tâm, Khang, đồng minh) và stake vũ trụ cùng tăng.
+- **Cao trào**: Mất mát lớn — một đồng minh quan trọng hy sinh.
+
+### Arc 5: Kết thúc Đồ Lục (Chương 36–?)
+- Cao trào cuối cùng.
+- Văn Tâm đối mặt với câu hỏi lớn nhất: "Tại sao phải hoàn thành 108?"
+- Quyết định số phận của tất cả chủng tộc.
+- **Kết thúc dự kiến**: Open-ending hoặc bittersweet.
+
+## Plot threads cần theo dõi
+
+1. **Đồ Lục tiết lộ gì?** — Các trang trắng dần hiện nội dung, mỗi lần là một manh mối.
+2. **Thầy Cao chết vì gì thực sự?** — Có thể không phải tai nạn đơn thuần.
+3. **Chủng tộc trí tuệ khác là ai?** — Động cơ, sức mạnh, và mối đe dọa.
+4. **Tại sao phải 108?** — Bí mật trung tâm, chỉ được tiết lộ ở Arc 5.
+5. **Tâm thay đổi như thế nào?** — Từ sinh viên lười biếng → kẻ mang gánh nặng vũ trụ.
+
+## Mục tiêu mỗi arc
+
+Mỗi arc đều có cao trào riêng, GMCS (Goal, Motivation, Conflict, Stakes) rõ ràng, và dần mở rộng quy mô: trường học → Trái Đất → đa chiều không gian → toàn vũ trụ.

@@ -8,6 +8,7 @@ build/
 .env.local
 .env.docker
 
+context/
 vectorstore/
 data/vectorstore/*
 data/chapters/*

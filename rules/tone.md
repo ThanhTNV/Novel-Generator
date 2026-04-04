@@ -1,8 +1,8 @@
 # Tone Rules
 
-- Write in a vivid, immersive literary tone appropriate to the genre.
-- Use rich sensory details: sight, sound, smell, touch, taste.
-- Balance action with introspection — let characters feel, not just do.
-- Vary sentence length for rhythm: short punches for tension, longer flowing sentences for atmosphere.
-- Avoid modern slang or anachronisms unless the setting demands it.
-- Maintain emotional authenticity — characters react proportionally to events.
+- Viết bằng tiếng Việt. Giữ giọng văn tự nhiên, hiện đại, không sáo rỗng.
+- Sử dụng chi tiết giác quan: thị giác, thính giác, xúc giác, khứu giác.
+- Cân bằng giữa hành động và nội tâm — nhân vật phải cảm, không chỉ làm.
+- Đa dạng nhịp câu: câu ngắn sắc khi căng thẳng, câu dài trôi chảy khi mô tả không khí.
+- Phần trường học: nhẹ nhàng, hài hước, rợn rợn. Phần Dimension Pocket: khốc liệt, tối tăm, sinh tử.
+- Giữ cảm giác mystery xuyên suốt — luôn có câu hỏi chưa được trả lời.

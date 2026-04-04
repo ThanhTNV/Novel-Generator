@@ -1,6 +1,5 @@
 from pathlib import Path
 from pydantic_settings import BaseSettings
-from pydantic import Field
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -16,7 +15,9 @@ class Settings(BaseSettings):
     default_model: str = "claude-sonnet-4-20250514"
 
     embedding_provider: str = "sentence-transformers"
-    embedding_model: str = "all-MiniLM-L6-v2"
+    embedding_model: str = "BAAI/bge-m3"
+
+    reranker_model: str = "BAAI/bge-reranker-v2-m3"
 
     chroma_persist_dir: str = str(ROOT_DIR / "vectorstore")
 
@@ -32,9 +33,10 @@ class Settings(BaseSettings):
 
     # Generation defaults
     default_chunk_size: int = 400
-    default_chunk_overlap: int = 50
-    default_top_k: int = 8
+    default_chunk_overlap: int = 80
+    default_top_k: int = 5
     default_target_words: int = 2000
+    max_context_tokens: int = 3000
 
     model_config = {"env_file": str(ROOT_DIR / ".env"), "extra": "ignore"}
 

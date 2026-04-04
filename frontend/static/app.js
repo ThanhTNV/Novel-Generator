@@ -74,6 +74,7 @@ document.querySelectorAll(".nav-btn").forEach(btn => {
         document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
         document.getElementById(`panel-${panelId}`).classList.add("active");
 
+        if (panelId === "write") autoDetectNextChapter();
         if (panelId === "chapters") loadChapters();
         if (panelId === "vectordb") loadVdbStats();
         if (panelId === "settings") loadSettings();
@@ -467,6 +468,100 @@ async function loadSettings() {
         toast(`Error loading settings: ${err.message}`, "error");
     }
 }
+
+// ---- Confirmation Modal ----
+
+function showConfirmModal(title, bodyHTML) {
+    return new Promise((resolve) => {
+        document.getElementById("confirmModalTitle").textContent = title;
+        document.getElementById("confirmModalBody").innerHTML = bodyHTML;
+        const modal = document.getElementById("confirmModal");
+        modal.style.display = "flex";
+
+        function cleanup(result) {
+            modal.style.display = "none";
+            document.getElementById("confirmModalOk").removeEventListener("click", onOk);
+            document.getElementById("confirmModalCancel").removeEventListener("click", onCancel);
+            modal.removeEventListener("click", onBackdrop);
+            resolve(result);
+        }
+        function onOk() { cleanup(true); }
+        function onCancel() { cleanup(false); }
+        function onBackdrop(e) { if (e.target === modal) cleanup(false); }
+
+        document.getElementById("confirmModalOk").addEventListener("click", onOk);
+        document.getElementById("confirmModalCancel").addEventListener("click", onCancel);
+        modal.addEventListener("click", onBackdrop);
+    });
+}
+
+// ---- Write Panel ----
+
+const writeEditor = document.getElementById("writeEditor");
+
+function updateWriteStats() {
+    const text = writeEditor.innerText || "";
+    const words = text.trim().split(/\s+/).filter(Boolean).length;
+    const chars = text.length;
+    document.getElementById("writeWordCount").textContent = words;
+    document.getElementById("writeCharCount").textContent = chars;
+}
+
+writeEditor.addEventListener("input", updateWriteStats);
+
+async function autoDetectNextChapter() {
+    try {
+        const data = await apiGet("/api/chapters");
+        const nums = data.chapters.map(ch => {
+            const m = ch.filename.match(/chapter-(\d+)/);
+            return m ? parseInt(m[1]) : 0;
+        });
+        const next = nums.length ? Math.max(...nums) + 1 : 1;
+        document.getElementById("writeChapterNumber").value = next;
+    } catch {}
+}
+
+document.getElementById("btnSaveManualChapter").addEventListener("click", async () => {
+    const content = writeEditor.innerText.trim();
+    if (!content) {
+        toast("Please write some content before saving.", "error");
+        return;
+    }
+
+    const chapterNum = parseInt(document.getElementById("writeChapterNumber").value) || 1;
+    const chapterTitle = document.getElementById("writeChapterTitle").value.trim();
+    const wordCount = content.split(/\s+/).filter(Boolean).length;
+
+    const titleDisplay = chapterTitle || "(Untitled)";
+    const confirmed = await showConfirmModal(
+        "Save Chapter",
+        `<p>You are about to save this chapter. It will be stored as a file and ingested into the vector database for RAG retrieval.</p>
+         <div class="modal-detail">
+             <strong>Chapter ${chapterNum}:</strong> ${titleDisplay}<br>
+             <strong>Word count:</strong> ${wordCount} words
+         </div>`
+    );
+
+    if (!confirmed) return;
+
+    showLoading("Saving chapter...");
+    try {
+        const data = await apiPost("/api/chapters/save", {
+            chapter_number: chapterNum,
+            title: chapterTitle,
+            content,
+        });
+        toast(`Chapter ${chapterNum} saved! ${data.chunks_ingested} chunks added to vector store.`, "success");
+        document.getElementById("writeChapterNumber").value = chapterNum + 1;
+        document.getElementById("writeChapterTitle").value = "";
+        writeEditor.innerText = "";
+        updateWriteStats();
+    } catch (err) {
+        toast(`Error: ${err.message}`, "error");
+    } finally {
+        hideLoading();
+    }
+});
 
 // ---- Init ----
 

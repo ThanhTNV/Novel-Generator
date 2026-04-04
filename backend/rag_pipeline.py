@@ -1,8 +1,9 @@
 """
-RAG Pipeline: embedding, chunking, ingestion, and retrieval via ChromaDB.
+RAG Pipeline: embedding, chunking, ingestion, retrieval, and reranking via ChromaDB.
 """
 
 import hashlib
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
@@ -13,6 +14,7 @@ from backend.config import settings
 
 _client = None  # type: Optional[chromadb.ClientAPI]
 _embedding_fn = None
+_reranker = None
 
 
 def _get_chroma_client() -> chromadb.ClientAPI:
@@ -44,6 +46,18 @@ def _get_embedding_function():
     return _embedding_fn
 
 
+def _get_reranker():
+    """Lazy-load cross-encoder reranker."""
+    global _reranker
+    if _reranker is not None:
+        return _reranker
+    if not settings.reranker_model:
+        return None
+    from sentence_transformers import CrossEncoder
+    _reranker = CrossEncoder(settings.reranker_model)
+    return _reranker
+
+
 def get_collection(name: str = "novel") -> chromadb.Collection:
     client = _get_chroma_client()
     return client.get_or_create_collection(
@@ -54,24 +68,75 @@ def get_collection(name: str = "novel") -> chromadb.Collection:
 
 
 # ---------------------------------------------------------------------------
-# Chunking
+# Chunking — sentence-aware recursive splitter
 # ---------------------------------------------------------------------------
+
+_SENTENCE_RE = re.compile(
+    r'(?<=[.!?…])'    # after sentence-ending punctuation
+    r'(?:\s*["\'""'')}\]]*)'  # optional closing quotes/brackets
+    r'\s+'             # whitespace boundary
+    r'(?=[A-Z"\'""''({[\[])'  # next sentence starts with uppercase or opening quote
+)
+
+_PARAGRAPH_RE = re.compile(r'\n\s*\n')
+
+
+def _split_sentences(text: str) -> List[str]:
+    """Split text into sentences, preserving paragraph breaks."""
+    paragraphs = _PARAGRAPH_RE.split(text)
+    sentences = []
+    for para in paragraphs:
+        parts = _SENTENCE_RE.split(para.strip())
+        sentences.extend(p.strip() for p in parts if p.strip())
+    return sentences
+
+
+def _count_words(text: str) -> int:
+    return len(text.split())
+
 
 def chunk_text(
     text: str,
     chunk_size: int = settings.default_chunk_size,
     overlap: int = settings.default_chunk_overlap,
 ) -> List[str]:
-    """Split text into overlapping word-based chunks."""
-    words = text.split()
+    """Split text into overlapping chunks along sentence boundaries.
+
+    Tries paragraph breaks first, then sentence breaks.  Never cuts
+    mid-sentence unless a single sentence exceeds chunk_size words.
+    """
+    sentences = _split_sentences(text)
+    if not sentences:
+        return []
+
     chunks: List[str] = []
-    start = 0
-    while start < len(words):
-        end = start + chunk_size
-        chunk = " ".join(words[start:end])
-        if chunk.strip():
-            chunks.append(chunk.strip())
-        start += chunk_size - overlap
+    current: List[str] = []
+    current_len = 0
+
+    for sent in sentences:
+        sent_len = _count_words(sent)
+
+        if current and current_len + sent_len > chunk_size:
+            chunks.append(" ".join(current))
+
+            # Keep trailing sentences for overlap
+            overlap_buf: List[str] = []
+            overlap_len = 0
+            for s in reversed(current):
+                s_len = _count_words(s)
+                if overlap_len + s_len > overlap:
+                    break
+                overlap_buf.insert(0, s)
+                overlap_len += s_len
+            current = overlap_buf
+            current_len = overlap_len
+
+        current.append(sent)
+        current_len += sent_len
+
+    if current:
+        chunks.append(" ".join(current))
+
     return chunks
 
 
@@ -148,6 +213,28 @@ def ingest_directory(
 
 
 # ---------------------------------------------------------------------------
+# Reranking
+# ---------------------------------------------------------------------------
+
+def rerank(query: str, hits: List[Dict], top_n: Optional[int] = None) -> List[Dict]:
+    """Rerank hits with a cross-encoder. Falls back to original order if no model configured."""
+    ranker = _get_reranker()
+    if ranker is None or not hits:
+        return hits
+
+    pairs = [[query, h["text"]] for h in hits]
+    scores = ranker.predict(pairs)
+
+    for h, score in zip(hits, scores):
+        h["rerank_score"] = float(score)
+
+    ranked = sorted(hits, key=lambda h: h["rerank_score"], reverse=True)
+    if top_n:
+        ranked = ranked[:top_n]
+    return ranked
+
+
+# ---------------------------------------------------------------------------
 # Retrieval
 # ---------------------------------------------------------------------------
 
@@ -156,16 +243,20 @@ def retrieve(
     top_k: int = settings.default_top_k,
     collection_name: str = "novel",
     where: Optional[Dict] = None,
+    do_rerank: bool = True,
 ) -> List[Dict]:
-    """Semantic search over stored chunks. Returns list of {text, metadata, distance}."""
+    """Semantic search + optional reranking. Returns list of {text, metadata, distance}."""
     collection = get_collection(collection_name)
 
     if collection.count() == 0:
         return []
 
+    fetch_k = top_k * 3 if (do_rerank and _get_reranker()) else top_k
+    fetch_k = min(fetch_k, collection.count())
+
     kwargs = {
         "query_texts": [query],
-        "n_results": min(top_k, collection.count()),
+        "n_results": fetch_k,
     }
     if where:
         kwargs["where"] = where
@@ -179,6 +270,10 @@ def retrieve(
             "metadata": results["metadatas"][0][i],
             "distance": results["distances"][0][i] if results.get("distances") else None,
         })
+
+    if do_rerank:
+        hits = rerank(query, hits, top_n=top_k)
+
     return hits
 
 

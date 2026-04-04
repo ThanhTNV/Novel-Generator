@@ -1,25 +1,31 @@
-# Locations
+# Địa điểm
 
-## Verenthia (Capital City)
-- **Geography**: Built on a series of terraced cliffs overlooking the Argent Sea. Three levels: the Undercity (docks and markets), the Midrise (residential and commercial), and the Crown (government and Athenaeum).
-- **Architecture**: Pale limestone and dark ironwork. Tall, narrow buildings with arched windows. Bridges span between the terraced levels. The Athenaeum of Veiled Knowledge dominates the Crown — a massive domed structure with obsidian pillars.
-- **Atmosphere**: Perpetual sea mist softens edges. Smell of salt, old stone, and coal smoke. Lamp-lit evenings with amber glow. Bustling during day, hauntingly quiet at night.
-- **Climate**: Temperate maritime. Frequent fog and drizzle. Mild summers, raw winters.
-- **Culture**: Center of scholarship and governance. Class divisions between levels are stark. The Athenaeum controls access to historical records.
+## Trái Đất – Kỷ nguyên Việt Lạc (năm 195)
 
-## The Ashenmere
-- **Geography**: A vast, dead marshland east of the Ironspine Mountains. Blackened trees rise from stagnant water. Occasional islands of solid ground connected by rotting boardwalks.
-- **Architecture**: Ruins of a pre-Sundering settlement visible beneath the murky water. Collapsed stone towers and submerged bridges. A few occupied structures — makeshift shelters built by refugees and outlaws.
-- **Atmosphere**: Oppressive silence broken by bubbling marsh gas. Thick fog year-round. Air tastes of sulfur and decay. Faint luminescence from beneath the water at night — locals call them "drowned stars."
-- **Climate**: Perpetually damp and cold regardless of season. The Sundering tainted the land — nothing grows here naturally.
-- **History**: Once the prosperous city of Merethas. Destroyed during the Sundering. Theron's company was hired to evacuate survivors but arrived too late.
+- Một Trái Đất tương lai gần, công nghệ dựa hoàn toàn vào Vật Chất thay vì điện/xăng.
+- Thành phố neon kết hợp kiến trúc cổ Việt Nam hiện đại.
+- Con người đã thuộc địa Mặt Trăng và Sao Hỏa.
 
-## The Pale Threshold
-- **Geography**: A rift in reality located at the center of the Ashenmere. Appears as a vertical tear in the air, roughly thirty feet tall, shimmering like heat haze. The space beyond is visible but distorted — structures that shouldn't exist, geometries that hurt the eye.
-- **Properties**: Disrupts magic within a hundred-yard radius. Compasses spin. Time feels inconsistent near it. Those who stare too long report hearing whispered conversations.
-- **History**: Appeared during the Sundering. The Architects are believed to have created it as a doorway between the drafted world and whatever lies beyond. Caelum Voss vanished while studying it.
+## Trường Chuyên Liên Cấp Nghiên Cứu Vật Chất
 
-## The Ironspine Mountains
-- **Geography**: A north-south mountain range dividing the coastal territories from the inland plains. Jagged peaks of dark iron-rich rock. Deep valleys with fast-running rivers. Passes are narrow and treacherous.
-- **Travel**: Three major passes. The Kingsroad Pass is the safest but controlled by toll garrisons. The Smuggler's Cut is faster but avalanche-prone. The Watcher's Path is highest and most dangerous but unguarded.
-- **Climate**: Alpine. Heavy snow from autumn through spring. Brief, intense summers.
+- Trường nội trú danh tiếng nhất Việt Lạc, tuyển sinh tài năng từ nhỏ.
+- Khuôn viên rộng lớn: khu ký túc xá, khu giảng đường, khu phòng riêng của giảng viên.
+- Nơi xảy ra sự kiện sương xám (chương 2).
+- Bầu không khí: ban ngày nhộn nhịp sinh viên, ban đêm yên tĩnh đến rợn người. Sau sự kiện sương xám, toàn trường bao phủ sương xám mờ ảo liên tục.
+
+## Không gian riêng của từng Vật Chất (Dimension Pocket)
+
+- Mỗi Vật Chất khi được nghiên cứu sâu sẽ kéo người vào một chiều không gian độc lập.
+- Mỗi không gian có luật lệ riêng, môi trường cực kỳ nguy hiểm:
+  - Núi rừng rậm rạp đầy quái thú
+  - Đại dương sâu thẳm không ánh sáng
+  - Lòng đất dung nham
+  - Sa mạc thời gian đảo ngược
+  - Thành phố cổ bị bỏ hoang
+- Chỉ người sở hữu "cảm nhận" Vật Chất mới có thể vào và thoát ra.
+- Thời gian trong Dimension Pocket có thể trôi khác so với bên ngoài.
+
+## Các địa điểm sẽ xuất hiện sau
+
+- **Mặt Trăng & Sao Hỏa**: Căn cứ nghiên cứu Vật Chất tiền tiêu của nhân loại.
+- **"Vùng Xám"**: Nơi các chủng tộc trí tuệ khác tụ họp để săn Vật Chất cuối cùng. Chưa ai từ Trái Đất đến được.
