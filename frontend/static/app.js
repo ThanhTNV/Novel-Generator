@@ -469,6 +469,169 @@ async function loadSettings() {
     }
 }
 
+// ---- Chat ----
+
+const chatMessages = document.getElementById("chatMessages");
+const chatInput = document.getElementById("chatInput");
+let chatHistory = [];
+
+chatInput.addEventListener("input", () => {
+    chatInput.style.height = "auto";
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + "px";
+});
+
+chatInput.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendChatMessage();
+    }
+});
+
+document.getElementById("btnChatSend").addEventListener("click", sendChatMessage);
+
+document.getElementById("btnClearChat").addEventListener("click", () => {
+    chatHistory = [];
+    chatMessages.innerHTML = `
+        <div class="chat-welcome">
+            <div class="chat-welcome-icon">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            </div>
+            <p>Ask anything about your story — characters, plot, locations, events. Answers are grounded in your vector database.</p>
+        </div>`;
+});
+
+function appendChatMsg(role, text) {
+    const welcome = chatMessages.querySelector(".chat-welcome");
+    if (welcome) welcome.remove();
+
+    const msg = document.createElement("div");
+    msg.className = `chat-msg ${role}`;
+    msg.innerHTML = `<div class="chat-msg-bubble">${escapeHtml(text)}</div>`;
+    chatMessages.appendChild(msg);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    return msg;
+}
+
+function appendTypingIndicator() {
+    const welcome = chatMessages.querySelector(".chat-welcome");
+    if (welcome) welcome.remove();
+
+    const msg = document.createElement("div");
+    msg.className = "chat-msg assistant";
+    msg.id = "chatTyping";
+    msg.innerHTML = `<div class="chat-msg-typing"><span></span><span></span><span></span></div>`;
+    chatMessages.appendChild(msg);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    return msg;
+}
+
+function escapeHtml(text) {
+    const div = document.createElement("div");
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function addSourcesBlock(msgEl, sources) {
+    if (!sources || !sources.length) return;
+    const showSources = document.getElementById("chatShowSources").checked;
+    const srcDiv = document.createElement("div");
+    srcDiv.className = `chat-msg-sources${showSources ? " visible" : ""}`;
+    srcDiv.innerHTML = sources.map((s, i) =>
+        `<strong>[${i + 1}] ${s.source}</strong>: ${escapeHtml(s.text.substring(0, 120))}...`
+    ).join("<br>");
+    msgEl.appendChild(srcDiv);
+}
+
+document.getElementById("chatShowSources").addEventListener("change", e => {
+    const visible = e.target.checked;
+    document.querySelectorAll(".chat-msg-sources").forEach(el => {
+        el.classList.toggle("visible", visible);
+    });
+});
+
+async function sendChatMessage() {
+    const message = chatInput.value.trim();
+    if (!message) return;
+
+    chatInput.value = "";
+    chatInput.style.height = "auto";
+
+    appendChatMsg("user", message);
+    chatHistory.push({ role: "user", content: message });
+
+    const typingEl = appendTypingIndicator();
+
+    const payload = {
+        message,
+        history: chatHistory.slice(0, -1),
+        top_k: 5,
+        provider: document.getElementById("provider").value || null,
+        model: document.getElementById("model").value || null,
+        stream: true,
+    };
+
+    document.getElementById("btnChatSend").disabled = true;
+
+    try {
+        const res = await fetch(`${API}/api/chat`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        });
+
+        typingEl.remove();
+
+        const assistantMsg = document.createElement("div");
+        assistantMsg.className = "chat-msg assistant";
+        const bubble = document.createElement("div");
+        bubble.className = "chat-msg-bubble";
+        assistantMsg.appendChild(bubble);
+        chatMessages.appendChild(assistantMsg);
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let fullAnswer = "";
+        let sources = [];
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop();
+
+            for (const line of lines) {
+                if (!line.startsWith("data: ")) continue;
+                const data = line.slice(6);
+                if (data === "[DONE]") continue;
+                try {
+                    const parsed = JSON.parse(data);
+                    if (parsed.sources) {
+                        sources = parsed.sources;
+                    }
+                    if (parsed.token) {
+                        fullAnswer += parsed.token;
+                        bubble.textContent = fullAnswer;
+                        chatMessages.scrollTop = chatMessages.scrollHeight;
+                    }
+                } catch {}
+            }
+        }
+
+        chatHistory.push({ role: "assistant", content: fullAnswer });
+        addSourcesBlock(assistantMsg, sources);
+
+    } catch (err) {
+        typingEl.remove();
+        toast(`Chat error: ${err.message}`, "error");
+    } finally {
+        document.getElementById("btnChatSend").disabled = false;
+        chatInput.focus();
+    }
+}
+
 // ---- Confirmation Modal ----
 
 function showConfirmModal(title, bodyHTML) {

@@ -87,6 +87,15 @@ class SearchRequest(BaseModel):
     top_k: int = 8
 
 
+class ChatRequest(BaseModel):
+    message: str
+    history: List[dict] = Field(default_factory=list)
+    top_k: int = 5
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    stream: bool = True
+
+
 class SaveChapterRequest(BaseModel):
     chapter_number: int
     title: str = ""
@@ -165,6 +174,36 @@ async def revise_chapter(req: ReviseRequest):
         max_tokens=req.max_tokens,
     )
     return {"content": text}
+
+
+# ---------------------------------------------------------------------------
+# Chat (RAG Q&A)
+# ---------------------------------------------------------------------------
+
+@app.post("/api/chat")
+async def chat_endpoint(req: ChatRequest):
+    agent = NovelAgent(provider=req.provider, model=req.model)
+
+    if req.stream:
+        async def event_stream():
+            stream, sources = await agent.chat_stream(
+                message=req.message,
+                history=req.history,
+                top_k=req.top_k,
+            )
+            yield f"data: {json.dumps({'sources': sources})}\n\n"
+            async for token in stream:
+                yield f"data: {json.dumps({'token': token})}\n\n"
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+    result = await agent.chat(
+        message=req.message,
+        history=req.history,
+        top_k=req.top_k,
+    )
+    return result
 
 
 # ---------------------------------------------------------------------------

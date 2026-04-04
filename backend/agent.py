@@ -222,6 +222,88 @@ class NovelAgent:
             yield token
 
     @staticmethod
+    def build_chat_system_prompt() -> str:
+        return (
+            "You are a knowledgeable assistant for a novel project. "
+            "Answer questions about the story's characters, plot, world-building, "
+            "and writing using ONLY the retrieved context provided. "
+            "If the context doesn't contain the answer, say so honestly. "
+            "Reply in the same language as the user's question."
+        )
+
+    async def chat(
+        self,
+        message: str,
+        history: Optional[List[Dict]] = None,
+        top_k: Optional[int] = None,
+    ) -> Dict:
+        """RAG Q&A: retrieve context relevant to the question, then answer."""
+        k = top_k or settings.default_top_k
+        hits = retrieve(message, top_k=k)
+        context = _format_hits(hits)
+        sources = [
+            {"text": h["text"][:200], "source": h.get("metadata", {}).get("source", "unknown")}
+            for h in hits
+        ]
+
+        system = self.build_chat_system_prompt()
+
+        conv_parts = []
+        if history:
+            for turn in history[-6:]:
+                role = turn.get("role", "user")
+                conv_parts.append(f"{'User' if role == 'user' else 'Assistant'}: {turn['content']}")
+
+        user_prompt = f"## Retrieved Context\n\n{context}\n\n"
+        if conv_parts:
+            user_prompt += "## Conversation History\n\n" + "\n".join(conv_parts) + "\n\n"
+        user_prompt += f"## Question\n\n{message}"
+
+        answer = await self.llm.generate(
+            system_prompt=system,
+            user_prompt=user_prompt,
+            temperature=0.3,
+            max_tokens=2048,
+        )
+        return {"answer": answer, "sources": sources}
+
+    async def chat_stream(
+        self,
+        message: str,
+        history: Optional[List[Dict]] = None,
+        top_k: Optional[int] = None,
+    ) -> tuple:
+        """Streaming RAG Q&A. Returns (async_iterator, sources)."""
+        k = top_k or settings.default_top_k
+        hits = retrieve(message, top_k=k)
+        context = _format_hits(hits)
+        sources = [
+            {"text": h["text"][:200], "source": h.get("metadata", {}).get("source", "unknown")}
+            for h in hits
+        ]
+
+        system = self.build_chat_system_prompt()
+
+        conv_parts = []
+        if history:
+            for turn in history[-6:]:
+                role = turn.get("role", "user")
+                conv_parts.append(f"{'User' if role == 'user' else 'Assistant'}: {turn['content']}")
+
+        user_prompt = f"## Retrieved Context\n\n{context}\n\n"
+        if conv_parts:
+            user_prompt += "## Conversation History\n\n" + "\n".join(conv_parts) + "\n\n"
+        user_prompt += f"## Question\n\n{message}"
+
+        stream = self.llm.generate_stream(
+            system_prompt=system,
+            user_prompt=user_prompt,
+            temperature=0.3,
+            max_tokens=2048,
+        )
+        return stream, sources
+
+    @staticmethod
     def _fit_draft_to_budget(draft: str, budget_tokens: int) -> str:
         """Keep beginning + end of draft if it exceeds the token budget."""
         est = _estimate_tokens(draft)
