@@ -1,3 +1,4 @@
+[![CI](https://github.com/ThanhTNV/Novel-Generator/actions/workflows/ci.yml/badge.svg)](https://github.com/ThanhTNV/Novel-Generator/actions/workflows/ci.yml)
 # Novel Generator
 
 AI-powered novel writing agent with RAG, modular skills, always-on rules, and a web-based chapter editor.
