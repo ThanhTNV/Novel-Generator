@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: Lint (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.11"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check syntax (compile all .py)
+        run: python -m py_compile main.py && python -m compileall backend/
+
+      - name: Import check
+        run: |
+          python -c "
+          from backend.config import settings
+          from backend.rag_pipeline import chunk_text, ingest_text, retrieve
+          from backend.api_client import LLMClient
+          from backend.agent import NovelAgent, load_rules, load_skills
+          from backend.server import app
+          print('All imports OK — Python ${{ matrix.python-version }}')
+          "
+
+  test-app:
+    name: Smoke test (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.11"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Start server
+        run: |
+          python main.py &
+          sleep 8
+
+      - name: Health check
+        run: |
+          curl -sf http://localhost:8000/api/config | python -m json.tool
+          curl -sf http://localhost:8000/api/vectordb/stats | python -m json.tool
+          curl -sf http://localhost:8000/api/rules | python -m json.tool
+          curl -sf http://localhost:8000/api/skills | python -m json.tool
+
+      - name: Test ingest and search
+        run: |
+          curl -sf -X POST http://localhost:8000/api/ingest/context | python -m json.tool
+
+          curl -sf -X POST http://localhost:8000/api/search \
+            -H 'Content-Type: application/json' \
+            -d '{"query": "Elara appearance", "top_k": 3}' | python -m json.tool
+
+      - name: Verify frontend loads
+        run: |
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/)
+          if [ "$STATUS" != "200" ]; then
+            echo "Frontend returned $STATUS"
+            exit 1
+          fi
+          echo "Frontend OK (200)"
+
+  docker-build:
+    name: Docker image build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          push: false
+          tags: novel-generator:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run container smoke test
+        run: |
+          docker run -d --name ng-test -p 8000:8000 novel-generator:ci
+          sleep 10
+          curl -sf http://localhost:8000/api/config | python3 -m json.tool
+          docker logs ng-test
+          docker stop ng-test

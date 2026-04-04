@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Novel Generator</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h1 class="logo">Novel<span>Gen</span></h1>
+            </div>
+
+            <nav class="sidebar-nav">
+                <button class="nav-btn active" data-panel="generate">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                    Generate
+                </button>
+                <button class="nav-btn" data-panel="chapters">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                    Chapters
+                </button>
+                <button class="nav-btn" data-panel="vectordb">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+                    Vector DB
+                </button>
+                <button class="nav-btn" data-panel="settings">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+                    Settings
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="db-status" id="dbStatus">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Loading...</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main content -->
+        <main class="main">
+            <!-- Generate Panel -->
+            <section class="panel active" id="panel-generate">
+                <div class="panel-header">
+                    <h2>Generate Chapter</h2>
+                </div>
+
+                <div class="generate-layout">
+                    <!-- Left: Controls -->
+                    <div class="controls-pane">
+                        <div class="form-group">
+                            <label>Chapter Instructions</label>
+                            <textarea id="chapterInstructions" rows="5" placeholder="Describe what should happen in this chapter..."></textarea>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Story Summary (so far)</label>
+                            <textarea id="storySummary" rows="3" placeholder="Brief summary of preceding events..."></textarea>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Characters</label>
+                                <input type="text" id="characters" placeholder="Comma-separated names">
+                            </div>
+                            <div class="form-group">
+                                <label>Locations</label>
+                                <input type="text" id="locations" placeholder="Comma-separated places">
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Target Words</label>
+                                <input type="number" id="targetWords" value="2000" min="200" max="10000" step="100">
+                            </div>
+                            <div class="form-group">
+                                <label>Temperature</label>
+                                <input type="range" id="temperature" min="0" max="1" step="0.05" value="0.7">
+                                <span class="range-value" id="tempValue">0.7</span>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Provider</label>
+                                <select id="provider">
+                                    <option value="">Default</option>
+                                    <option value="claude">Claude</option>
+                                    <option value="openai">OpenAI</option>
+                                    <option value="groq">Groq</option>
+                                    <option value="ollama">Ollama</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Model</label>
+                                <input type="text" id="model" placeholder="Default model">
+                            </div>
+                        </div>
+
+                        <div class="btn-row">
+                            <button class="btn btn-primary" id="btnGenerate">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                                Generate Draft
+                            </button>
+                            <button class="btn btn-secondary" id="btnStream">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
+                                Stream Draft
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Right: Preview -->
+                    <div class="preview-pane">
+                        <div class="preview-header">
+                            <h3>Draft Preview</h3>
+                            <div class="preview-actions">
+                                <span class="word-count" id="wordCount">0 words</span>
+                                <button class="btn btn-sm" id="btnCopyDraft" title="Copy to clipboard">Copy</button>
+                            </div>
+                        </div>
+                        <div class="draft-editor" id="draftEditor" contenteditable="true" data-placeholder="Generated chapter will appear here..."></div>
+
+                        <!-- Feedback -->
+                        <div class="feedback-section" id="feedbackSection" style="display:none;">
+                            <div class="form-group">
+                                <label>Revision Feedback</label>
+                                <textarea id="feedbackText" rows="3" placeholder="What should change? Be specific..."></textarea>
+                            </div>
+                            <div class="btn-row">
+                                <button class="btn btn-primary" id="btnRevise">Revise Draft</button>
+                                <button class="btn btn-secondary" id="btnReviseStream">Stream Revision</button>
+                            </div>
+                        </div>
+
+                        <!-- Finalize -->
+                        <div class="finalize-section" id="finalizeSection" style="display:none;">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Chapter Number</label>
+                                    <input type="number" id="chapterNumber" value="1" min="1">
+                                </div>
+                                <div class="form-group">
+                                    <label>Chapter Title</label>
+                                    <input type="text" id="chapterTitle" placeholder="Optional title">
+                                </div>
+                            </div>
+                            <button class="btn btn-success" id="btnFinalize">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                                Finalize &amp; Save
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Chapters Panel -->
+            <section class="panel" id="panel-chapters">
+                <div class="panel-header">
+                    <h2>Saved Chapters</h2>
+                    <button class="btn btn-sm" id="btnRefreshChapters">Refresh</button>
+                </div>
+                <div class="chapters-list" id="chaptersList">
+                    <p class="empty-state">No chapters saved yet.</p>
+                </div>
+                <div class="chapter-reader" id="chapterReader" style="display:none;">
+                    <button class="btn btn-sm" id="btnBackToList">&larr; Back to list</button>
+                    <div class="chapter-content" id="chapterContent"></div>
+                </div>
+            </section>
+
+            <!-- Vector DB Panel -->
+            <section class="panel" id="panel-vectordb">
+                <div class="panel-header">
+                    <h2>Vector Database</h2>
+                </div>
+
+                <div class="vdb-grid">
+                    <div class="vdb-card">
+                        <h3>Status</h3>
+                        <div class="vdb-stat" id="vdbStats">Loading...</div>
+                    </div>
+
+                    <div class="vdb-card">
+                        <h3>Ingest Context Files</h3>
+                        <p>Load all .md files from the <code>context/</code> directory into the vector store.</p>
+                        <button class="btn btn-primary" id="btnIngestContext">Ingest Context Directory</button>
+                    </div>
+
+                    <div class="vdb-card">
+                        <h3>Ingest Custom Text</h3>
+                        <textarea id="ingestText" rows="4" placeholder="Paste text to embed..."></textarea>
+                        <input type="text" id="ingestSource" placeholder="Source label (e.g. backstory)" style="margin-top:0.5rem;">
+                        <button class="btn btn-primary" id="btnIngestText" style="margin-top:0.5rem;">Ingest Text</button>
+                    </div>
+
+                    <div class="vdb-card">
+                        <h3>Search</h3>
+                        <input type="text" id="searchQuery" placeholder="Semantic search query...">
+                        <button class="btn btn-primary" id="btnSearch" style="margin-top:0.5rem;">Search</button>
+                        <div class="search-results" id="searchResults"></div>
+                    </div>
+
+                    <div class="vdb-card danger-zone">
+                        <h3>Danger Zone</h3>
+                        <button class="btn btn-danger" id="btnClearVdb">Clear Vector Store</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Settings Panel -->
+            <section class="panel" id="panel-settings">
+                <div class="panel-header">
+                    <h2>Settings</h2>
+                </div>
+                <div class="settings-content">
+                    <div class="settings-card">
+                        <h3>Current Configuration</h3>
+                        <pre id="configDisplay">Loading...</pre>
+                    </div>
+                    <div class="settings-card">
+                        <h3>Active Rules</h3>
+                        <div id="rulesDisplay">Loading...</div>
+                    </div>
+                    <div class="settings-card">
+                        <h3>Active Skills</h3>
+                        <div id="skillsDisplay">Loading...</div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Toast notification -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Loading overlay -->
+    <div class="loading-overlay" id="loadingOverlay" style="display:none;">
+        <div class="spinner"></div>
+        <p id="loadingText">Generating...</p>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

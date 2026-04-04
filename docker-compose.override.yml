@@ -1,0 +1,11 @@
+# Development overrides — automatically loaded by docker compose.
+# For production: docker compose -f docker-compose.yml up -d
+
+services:
+  novel-generator:
+    volumes:
+      - ./backend:/app/backend:cached
+      - ./frontend:/app/frontend:cached
+      - ./main.py:/app/main.py:cached
+    environment:
+      DEBUG: "true"
