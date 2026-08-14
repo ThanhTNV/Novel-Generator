@@ -89,12 +89,20 @@ class TestGeminiExtractor:
         assert results[1].relations == [
             {"subject": "Liễu Thanh Ca", "relation": "STUDENT_OF", "object": "Thầy Cao"}]
 
+    @staticmethod
+    def _shape_of(cfg):
+        if "responseSchema" in cfg:
+            return "legacy"
+        if "response_format" in cfg:
+            return "modern"
+        return "bare"
+
     def test_variant_fallback_on_400_and_caches_winner(self):
         shapes = []
 
         def handler(request):
             cfg = json.loads(request.content)["generationConfig"]
-            shapes.append("legacy" if "responseSchema" in cfg else "modern" if "response_format" in cfg else "bare")
+            shapes.append(self._shape_of(cfg))
             if "responseSchema" in cfg:
                 return httpx.Response(400, text="Unknown name responseSchema")
             return httpx.Response(200, json=gemini_response([{"index": 0, "entities": [], "relations": []}]))
@@ -102,7 +110,54 @@ class TestGeminiExtractor:
         ex = extractor_with(handler)
         ex.extract_segments(["a"])
         ex.extract_segments(["b"])
-        assert shapes == ["legacy", "modern", "modern"]  # winner remembered
+        assert shapes == ["legacy", "bare", "bare"]  # winner remembered
+
+    def test_unsupported_thinking_field_does_not_poison_all_variants(self):
+        """
+        Regression: thinking config used to be merged into every variant, so a
+        rejected thinking field returned 400 for all of them and extraction
+        could never recover. The live API rejects `thinking_level`, which is
+        exactly how this bit in production.
+        """
+        seen = []
+
+        def handler(request):
+            cfg = json.loads(request.content)["generationConfig"]
+            seen.append(cfg)
+            if "thinkingConfig" in cfg:
+                return httpx.Response(400, text='Unknown name "thinkingConfig"')
+            return httpx.Response(200, json=gemini_response([{"index": 0, "entities": [], "relations": []}]))
+
+        ex = extractor_with(handler, model="gemini-3.1-flash-lite")
+        ex.extract_segments(["a"])  # must not raise
+        assert any("thinkingConfig" not in c for c in seen), "no thinking-free variant was tried"
+
+    def test_gemini_3_uses_thinking_config_not_thinking_level(self):
+        """The documented top-level `thinking_level` returns 400 on v1beta."""
+        seen = {}
+
+        def handler(request):
+            seen["cfg"] = json.loads(request.content)["generationConfig"]
+            return httpx.Response(200, json=gemini_response([{"index": 0, "entities": [], "relations": []}]))
+
+        extractor_with(handler, model="gemini-3.1-flash-lite").extract_segments(["a"])
+        assert "thinking_level" not in seen["cfg"]
+        assert seen["cfg"]["thinkingConfig"] == {"thinkingLevel": "LOW"}
+
+    def test_pronoun_endpoints_are_dropped(self):
+        def handler(request):
+            return httpx.Response(200, json=gemini_response([{
+                "index": 0,
+                "entities": [],
+                "relations": [
+                    {"subject": "cậu", "relation": "SỞ_HỮU", "object": "Đồ Lục"},
+                    {"subject": "Văn Tâm", "relation": "RECEIVES", "object": "Đồ Lục"},
+                    {"subject": "Đồ Lục", "relation": "BELONGS_TO", "object": "he"},
+                ],
+            }]))
+
+        rels = extractor_with(handler).extract_segments(["x"])[0].relations
+        assert rels == [{"subject": "Văn Tâm", "relation": "RECEIVES", "object": "Đồ Lục"}]
 
     def test_non_400_error_raises_without_variant_retry(self):
         calls = []

@@ -28,7 +28,10 @@ import httpx
 from .extract import CONCEPT, ITEM, Mention, NUMBER, PERSON, PLACE, PROPER, _canonical
 
 GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
-DEFAULT_EXTRACT_MODEL = "gemini-2.5-flash-lite"
+# gemini-2.5-* is closed to API keys created after mid-2026 ("no longer
+# available to new users") even though it still shows up in ListModels, so the
+# default is the cheapest flash-lite that new keys can actually call.
+DEFAULT_EXTRACT_MODEL = "gemini-3.1-flash-lite"
 API_TIMEOUT_S = 45.0
 MAX_SEGMENTS_PER_CALL = 40
 MAX_CHARS_PER_CALL = 30_000
@@ -87,8 +90,18 @@ _INSTRUCTION = (
     "DISCOVERED, FRIENDS_WITH).\n"
     "Keep entity names exactly as written in the text (original language and "
     "diacritics). Extract only what is stated; do not infer or invent. Every "
-    "input segment index must appear exactly once in the output."
+    "input segment index must appear exactly once in the output.\n"
+    "Never use a pronoun as a subject or object (cậu, anh, nó, hắn, ông ấy, "
+    "he, she, it, they). Use the proper name; if the name is not stated in "
+    "that segment, omit the triple entirely."
 )
+
+# Endpoints that carry no identity. A triple anchored on a pronoun cannot be
+# resolved to a character, so it is graph noise rather than a fact.
+_PRONOUNS = set("""
+cau anh chi em toi ta no ho han minh ong ba co chu bac di nguoi chung
+he she it they them him her his hers we us you your i me my our their
+""".split())
 
 _JSON_SCHEMA = {
     "type": "object",
@@ -144,31 +157,52 @@ def _legacy_schema(node: Any) -> Any:
 
 
 def _thinking(model: str) -> Dict[str, Any]:
+    """
+    Keep reasoning tokens off an extraction task that needs none.
+
+    Verified against the live v1beta API (2026-08-14): the documented
+    ``thinking_level`` top-level field does NOT exist and returns 400 — the
+    real field is ``thinkingConfig``, taking either thinkingLevel or a budget.
+    """
     if re.match(r"^gemini-2\.5-flash-lite", model):
-        return {}  # thinking is off by default on lite
+        return {}  # thinking already off by default
     if re.match(r"^gemini-2\.5", model):
         return {"thinkingConfig": {"thinkingBudget": 0}}
     if re.match(r"^gemini-3", model):
-        return {"thinking_level": "minimal"}
+        return {"thinkingConfig": {"thinkingLevel": "LOW"}}
     return {}
 
 
 def _config_variants(model: str) -> List[Dict[str, Any]]:
-    legacy = {
+    """
+    Request shapes to try, in order, falling back on HTTP 400.
+
+    Thinking config is a SEPARATE axis from the schema shape. Folding it into
+    every variant (as this once did) means one unsupported thinking field
+    returns 400 for all of them and the fallback can never recover.
+    """
+    schema_legacy = {
         "temperature": 0,
         "responseMimeType": "application/json",
         "responseSchema": _legacy_schema(_JSON_SCHEMA),
     }
+    bare = {"temperature": 0, "responseMimeType": "application/json"}
+    # Present in some API generations; rejected by v1beta today, so it is
+    # tried last purely for forward compatibility.
     modern = {
         "temperature": 0,
         "response_format": {"type": "text", "mime_type": "application/json", "schema": _JSON_SCHEMA},
     }
-    bare = {"temperature": 0, "responseMimeType": "application/json"}
-    for cfg in (legacy, modern, bare):
-        cfg.update(_thinking(model))
-    if re.match(r"^gemini-3", model):
-        return [modern, legacy, bare]
-    return [legacy, modern, bare]
+
+    thinking = _thinking(model)
+    variants: List[Dict[str, Any]] = []
+    for base in (schema_legacy, bare, modern):
+        if thinking:
+            with_thinking = dict(base)
+            with_thinking.update(thinking)
+            variants.append(with_thinking)
+        variants.append(dict(base))
+    return variants
 
 
 class GeminiExtractorError(RuntimeError):
@@ -298,8 +332,11 @@ class GeminiExtractor(object):
                 subject = (r.get("subject") or "").strip()
                 relation = (r.get("relation") or "").strip()
                 obj = (r.get("object") or "").strip()
-                if subject and relation and obj:
-                    relations.append({"subject": subject, "relation": relation, "object": obj})
+                if not (subject and relation and obj):
+                    continue
+                if _canonical(subject) in _PRONOUNS or _canonical(obj) in _PRONOUNS:
+                    continue
+                relations.append({"subject": subject, "relation": relation, "object": obj})
             result[index] = SegmentExtraction(list(entities.values()), relations)
         return result
 

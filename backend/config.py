@@ -35,7 +35,9 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     google_api_key: str = ""
     zero_mem_extractor: str = "auto"   # auto | gemini | local
-    zero_mem_extract_model: str = "gemini-2.5-flash-lite"
+    # NOTE: gemini-2.5-* is rejected for API keys created after mid-2026
+    # ("no longer available to new users"), despite still being listed.
+    zero_mem_extract_model: str = "gemini-3.1-flash-lite"
 
     host: str = "0.0.0.0"
     port: int = 8000
