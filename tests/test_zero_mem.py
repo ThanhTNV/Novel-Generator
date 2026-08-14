@@ -199,6 +199,28 @@ class TestRetrieval:
             if block.strip():
                 assert block.startswith("### ")
 
+    def test_chapters_sort_after_all_reference_material(self, engine):
+        """
+        Regression: chapter N was stored at ordinal N, so chapter 1 collided
+        with the second context file and sorted before the rest of the world
+        bible — scrambling narrative order and killing the recency boost.
+        """
+        sources = dict((s["name"], s) for s in engine.store.sources())
+        ref_max = max(s["ordinal"] for s in sources.values() if s["kind"] == "reference")
+        chapters = [s for s in sources.values() if s["kind"] == "chapter"]
+        assert chapters
+        for c in chapters:
+            assert c["ordinal"] > ref_max, "chapter must sort after reference material"
+        # and chapters keep their own order
+        by_ch = sorted(chapters, key=lambda s: s["chapter"])
+        assert [c["ordinal"] for c in by_ch] == sorted(c["ordinal"] for c in by_ch)
+
+    def test_saved_chapter_is_retrievable_for_continuity(self, engine):
+        """A written chapter must be able to outrank the world bible."""
+        res = engine.search("Chuyện gì xảy ra gần đây nhất với Văn Tâm?", top_k=6)
+        kinds = [ev.trace.kind for ev in res["evidence"] if ev.role == "match"]
+        assert "chapter" in kinds, "newest chapter never surfaced for a continuity query"
+
     def test_continuity_prefers_latest_chapter(self, engine):
         res = engine.search("Chuyện gì xảy ra gần đây nhất với Văn Tâm?", top_k=4)
         assert res["profile"]["intent"] == "continuity"

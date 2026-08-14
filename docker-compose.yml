@@ -11,6 +11,7 @@ services:
       HOST: "0.0.0.0"
       PORT: "8000"
       ZERO_MEM_DB: /app/data/memory/zero_mem.db
+      CHAPTERS_DIR: /app/data/chapters
     volumes:
       - memory_data:/app/data/memory
       - chapters_data:/app/data/chapters

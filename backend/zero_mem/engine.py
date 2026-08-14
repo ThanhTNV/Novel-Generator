@@ -43,6 +43,12 @@ NEIGHBOUR_SCORE = 0.45    # relative score given to closure neighbours
 CANON_BOOST = 1.15        # context/ files are authoritative reference material
 RECENCY_BOOST = 1.35      # latest chapters win for continuity questions
 
+# Reference material occupies ordinals 0..N and narrative starts above it, so
+# world-bible entries always sort before chapter one and "later" always means
+# further along the story.
+REFERENCE_ORDINAL_BASE = 0
+NARRATIVE_ORDINAL_BASE = 1000
+
 _CHAPTER_NUM_RE = re.compile(r"(\d+)")
 
 _CONTINUITY_HINTS = (
@@ -241,7 +247,14 @@ class ZeroMemEngine(object):
                         ms.append(m._replace(count=1))
 
         if ordinal is None:
-            ordinal = chapter if chapter is not None else self._next_ordinal(kind)
+            # Chapter N must land in the narrative band, not at ordinal N —
+            # otherwise chapter 1 collides with the second reference file and
+            # sorts *before* the rest of the world bible, which both scrambles
+            # narrative order and denies the newest chapter its recency boost.
+            if chapter is not None:
+                ordinal = NARRATIVE_ORDINAL_BASE + chapter
+            else:
+                ordinal = self._next_ordinal(kind)
         self.store.replace_source(
             name=source, segments=segments, mentions_per_segment=mentions,
             kind=kind, chapter=chapter, ordinal=ordinal, timestamp=time.time(),
@@ -301,7 +314,7 @@ class ZeroMemEngine(object):
 
     def _next_ordinal(self, kind: str) -> int:
         # Reference material sorts before narrative so chapters keep natural order.
-        base = 0 if kind == "reference" else 1000
+        base = REFERENCE_ORDINAL_BASE if kind == "reference" else NARRATIVE_ORDINAL_BASE
         existing = [s["ordinal"] for s in self.store.sources() if s["kind"] == kind]
         return max(existing) + 1 if existing else base
 

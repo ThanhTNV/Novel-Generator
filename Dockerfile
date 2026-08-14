@@ -31,7 +31,7 @@ COPY rules/ ./rules/
 COPY skills/ ./skills/
 COPY entrypoint.sh .
 RUN chmod +x entrypoint.sh && \
-    mkdir -p data/memory data/chapters chapters && \
+    mkdir -p data/memory data/chapters && \
     chown -R appuser:appuser /app
 
 USER appuser
