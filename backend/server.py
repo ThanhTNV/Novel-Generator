@@ -52,7 +52,9 @@ class GenerateRequest(BaseModel):
     locations: List[str] = Field(default_factory=list)
     target_words: int = settings.default_target_words
     temperature: float = 0.7
-    max_tokens: int = 4096
+    # None => derived from target_words (Vietnamese needs ~2.4 tok/word, so a
+    # fixed cap truncated chapters). Pass a number only to override.
+    max_tokens: Optional[int] = None
     provider: Optional[str] = None
     model: Optional[str] = None
     stream: bool = False
@@ -62,7 +64,7 @@ class ReviseRequest(BaseModel):
     draft: str
     feedback: str
     temperature: float = 0.5
-    max_tokens: int = 4096
+    max_tokens: Optional[int] = None
     provider: Optional[str] = None
     model: Optional[str] = None
     stream: bool = False

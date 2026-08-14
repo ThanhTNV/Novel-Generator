@@ -53,6 +53,20 @@ def _estimate_tokens(text: str) -> int:
     return max(len(text) // 3, len(text.split()))
 
 
+def output_budget(target_words: Optional[int] = None) -> int:
+    """
+    Output-token budget for a piece of prose of ``target_words``.
+
+    Vietnamese runs ~2.26 tokens/word (measured against cl100k on this
+    project's corpus), so a 2000-word chapter needs ~4.5k tokens — more than
+    the 4096 that used to be hard-coded here, which silently truncated every
+    chapter written at the default length.
+    """
+    words = target_words or settings.default_target_words
+    needed = int(words * settings.output_tokens_per_word * settings.output_token_headroom)
+    return max(settings.min_output_tokens, min(needed, settings.max_output_tokens))
+
+
 def _sources_from_used(used: List[Dict]) -> List[Dict]:
     """Shape Zero-Mem provenance for the /api/chat sources panel."""
     return [
@@ -154,9 +168,10 @@ class NovelAgent:
         locations: Optional[List[str]] = None,
         target_words: Optional[int] = None,
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_tokens: Optional[int] = None,
     ) -> str:
         """Full pipeline: retrieve context -> assemble prompt -> generate chapter."""
+        max_tokens = max_tokens or output_budget(target_words)
         context = await self.gather_context(
             query=chapter_instructions,
             characters=characters,
@@ -186,9 +201,10 @@ class NovelAgent:
         locations: Optional[List[str]] = None,
         target_words: Optional[int] = None,
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_tokens: Optional[int] = None,
     ) -> AsyncIterator[str]:
         """Streaming version of generate_chapter."""
+        max_tokens = max_tokens or output_budget(target_words)
         context = await self.gather_context(
             query=chapter_instructions,
             characters=characters,
@@ -324,9 +340,12 @@ class NovelAgent:
         draft: str,
         feedback: str,
         temperature: float = 0.5,
-        max_tokens: int = 4096,
+        max_tokens: Optional[int] = None,
     ) -> str:
         """Revise a draft based on user feedback."""
+        # A revision returns the whole chapter, so the budget scales with the
+        # draft it is rewriting, not with a fixed constant.
+        max_tokens = max_tokens or output_budget(len(draft.split()))
         system = self.build_revise_system_prompt()
         user = self._build_revise_user_prompt(draft, feedback)
 
@@ -342,9 +361,10 @@ class NovelAgent:
         draft: str,
         feedback: str,
         temperature: float = 0.5,
-        max_tokens: int = 4096,
+        max_tokens: Optional[int] = None,
     ) -> AsyncIterator[str]:
         """Streaming revision."""
+        max_tokens = max_tokens or output_budget(len(draft.split()))
         system = self.build_revise_system_prompt()
         user = self._build_revise_user_prompt(draft, feedback)
 

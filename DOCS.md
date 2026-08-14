@@ -109,6 +109,8 @@ Both accept `"stream": true` for SSE streaming.
 | `POST` | `/api/search` | Semantic search |
 | `GET` | `/api/vectordb/stats` | Segment / entity / source counts |
 | `GET` | `/api/memory/entity/{name}` | Entity profile: mentions, passages, relation triples, related entities |
+
+**Output length.** `max_tokens` is optional on `/api/generate` and `/api/revise`; when omitted the server derives it from `target_words` (or the draft length for revisions). Vietnamese prose measures ~2.26 tokens/word, so the previous fixed 4096 cap truncated a default 2000-word chapter mid-sentence. Tune with `OUTPUT_TOKENS_PER_WORD` / `MAX_OUTPUT_TOKENS`.
 | `GET` | `/api/memory/sources` | Ingested documents (reference vs chapter) |
 | `DELETE` | `/api/vectordb/clear` | Wipe collection |
 

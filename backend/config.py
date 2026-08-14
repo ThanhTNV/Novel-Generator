@@ -50,6 +50,15 @@ class Settings(BaseSettings):
     default_target_words: int = 2000
     max_context_tokens: int = 3000
 
+    # Output budget. Vietnamese costs far more tokens per word than English —
+    # measured 2.26 tok/word on this corpus with cl100k — so a flat 4096 cap
+    # truncated a default 2000-word chapter mid-sentence. The generation
+    # budget is derived from the requested length instead of hard-coded.
+    output_tokens_per_word: float = 2.4
+    output_token_headroom: float = 1.2
+    min_output_tokens: int = 1024
+    max_output_tokens: int = 16384
+
     model_config = {"env_file": str(ROOT_DIR / ".env"), "extra": "ignore"}
 
 

@@ -101,7 +101,9 @@ function getGeneratePayload(stream = false) {
         locations: parseList(document.getElementById("locations").value),
         target_words: parseInt(document.getElementById("targetWords").value) || 2000,
         temperature: parseFloat(document.getElementById("temperature").value),
-        max_tokens: 4096,
+        // max_tokens omitted on purpose: the server sizes the output budget
+        // from target_words. Vietnamese runs ~2.4 tokens/word, so the old
+        // fixed 4096 cut every default-length chapter off mid-sentence.
         provider: document.getElementById("provider").value || null,
         model: document.getElementById("model").value || null,
         stream,
@@ -200,7 +202,8 @@ async function doRevise(stream) {
         draft,
         feedback,
         temperature: 0.5,
-        max_tokens: 4096,
+        // omitted: the server sizes the budget from the draft's own length,
+        // since a revision returns the complete rewritten chapter
         provider: document.getElementById("provider").value || null,
         model: document.getElementById("model").value || null,
         stream,
