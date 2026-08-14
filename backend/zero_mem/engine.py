@@ -283,8 +283,11 @@ class ZeroMemEngine(object):
                     extracted[i] = res
                     to_cache.append((hashes[i], res.to_json()))
                 self.store.cache_put(to_cache, model)
-            except GeminiExtractorError as exc:
-                self.log("zero-mem: Gemini extraction failed (%s); gazetteer/pattern NER covers this ingest." % exc)
+            except Exception as exc:
+                # Extractors are pluggable (Gemini / Ollama / ...), each with
+                # its own error type. Whatever goes wrong, the deterministic
+                # pipeline still carries the ingest — it must never fail here.
+                self.log("zero-mem: SLM extraction failed (%s); gazetteer/pattern NER covers this ingest." % exc)
 
         relations: List[List[Dict[str, str]]] = [[] for _ in segments]
         for i, res in extracted.items():

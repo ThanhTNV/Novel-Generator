@@ -57,10 +57,16 @@ def get_engine() -> ZeroMemEngine:
                     logger=_log,
                 )
                 extractor = None
-                if settings.zero_mem_extractor in ("auto", "gemini"):
-                    api_key = gemini_key
+                if settings.zero_mem_extractor == "ollama":
+                    from backend.zero_mem.ollama_extract import create_ollama_extractor
+                    extractor = create_ollama_extractor(
+                        settings.zero_mem_ollama_extract_model,
+                        settings.ollama_base_url,
+                        logger=_log,
+                    )
+                elif settings.zero_mem_extractor in ("auto", "gemini"):
                     extractor = create_extractor(
-                        api_key, settings.zero_mem_extract_model, logger=_log
+                        gemini_key, settings.zero_mem_extract_model, logger=_log
                     )
                     if extractor is None and settings.zero_mem_extractor == "gemini":
                         _log("zero-mem: ZERO_MEM_EXTRACTOR=gemini but no GEMINI_API_KEY; using local NER.")

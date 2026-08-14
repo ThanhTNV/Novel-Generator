@@ -34,10 +34,15 @@ class Settings(BaseSettings):
     # set ZERO_MEM_EXTRACTOR=local to force it off.
     gemini_api_key: str = ""
     google_api_key: str = ""
-    zero_mem_extractor: str = "auto"   # auto | gemini | local
+    # auto | gemini | ollama | local
+    #   auto   -> gemini when a key is set, else local
+    #   ollama -> reuse the Ollama model/endpoint (no Gemini key needed);
+    #             set zero_mem_extract_model to an Ollama tag
+    zero_mem_extractor: str = "auto"
     # NOTE: gemini-2.5-* is rejected for API keys created after mid-2026
     # ("no longer available to new users"), despite still being listed.
     zero_mem_extract_model: str = "gemini-3.1-flash-lite"
+    zero_mem_ollama_extract_model: str = "gemma4:31b-cloud"
 
     host: str = "0.0.0.0"
     port: int = 8000

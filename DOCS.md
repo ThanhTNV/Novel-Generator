@@ -110,6 +110,8 @@ Both accept `"stream": true` for SSE streaming.
 | `GET` | `/api/vectordb/stats` | Segment / entity / source counts |
 | `GET` | `/api/memory/entity/{name}` | Entity profile: mentions, passages, relation triples, related entities |
 
+**Extractor choice.** `ZERO_MEM_EXTRACTOR` selects who extracts entities/relations: `gemini` (default when a key is set), `ollama` (reuse your Ollama model, no Gemini key needed), or `local` (no SLM). Measured on `context/` (93 segments): Gemini 3.1 Flash-Lite found 29 relations in 14.1s; Ollama gemma4:31b-cloud found 8 in 19.6s and consumes the same free quota chapter writing uses. Ollama's hosted models treat the JSON-schema `format` parameter as a hint rather than a constraint, so the Ollama path uses a shape-tolerant parser.
+
 **Output length.** `max_tokens` is optional on `/api/generate` and `/api/revise`; when omitted the server derives it from `target_words` (or the draft length for revisions). Vietnamese prose measures ~2.26 tokens/word, so the previous fixed 4096 cap truncated a default 2000-word chapter mid-sentence. Tune with `OUTPUT_TOKENS_PER_WORD` / `MAX_OUTPUT_TOKENS`.
 | `GET` | `/api/memory/sources` | Ingested documents (reference vs chapter) |
 | `DELETE` | `/api/vectordb/clear` | Wipe collection |
