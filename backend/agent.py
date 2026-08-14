@@ -1,6 +1,9 @@
 """
-Novel Agent: assembles prompts from context, skills, rules, and retrieved RAG chunks,
-then calls the LLM to generate or revise chapter drafts.
+Novel Agent: assembles prompts from context, skills, rules, and Zero-Mem
+evidence, then calls the LLM to generate or revise chapter drafts.
+
+The only LLM calls in this file are the ones that write prose. Memory
+operations (store / index / retrieve) are zero-token by construction.
 """
 
 from pathlib import Path
@@ -8,12 +11,7 @@ from typing import AsyncIterator, Dict, List, Optional, Union
 
 from backend.config import settings
 from backend.api_client import LLMClient
-from backend.rag_pipeline import (
-    retrieve,
-    retrieve_for_characters,
-    retrieve_for_locations,
-    retrieve_for_plot,
-)
+from backend.rag_pipeline import get_engine
 
 
 def _load_markdown_dir(dirpath: Union[str, Path]) -> str:
@@ -55,22 +53,18 @@ def _estimate_tokens(text: str) -> int:
     return max(len(text) // 3, len(text.split()))
 
 
-def _format_hits(hits: List[Dict], max_tokens: Optional[int] = None) -> str:
-    if not hits:
-        return "(No relevant context found in vector store.)"
-    budget = max_tokens or settings.max_context_tokens
-    parts = []
-    running = 0
-    for i, h in enumerate(hits, 1):
-        meta = h.get("metadata", {})
-        source = meta.get("source", "unknown")
-        entry = f"[{i}] (source: {source})\n{h['text']}"
-        cost = _estimate_tokens(entry)
-        if running + cost > budget:
-            break
-        parts.append(entry)
-        running += cost
-    return "\n\n".join(parts) if parts else "(Context trimmed due to token budget.)"
+def _sources_from_used(used: List[Dict]) -> List[Dict]:
+    """Shape Zero-Mem provenance for the /api/chat sources panel."""
+    return [
+        {
+            "text": u["text"],
+            "source": "%s%s" % (
+                u["source"],
+                " — " + u["heading"] if u.get("heading") else "",
+            ),
+        }
+        for u in used
+    ]
 
 
 class NovelAgent:
@@ -128,33 +122,29 @@ class NovelAgent:
         locations: Optional[List[str]] = None,
         top_k: Optional[int] = None,
     ) -> str:
-        """Retrieve relevant context from the vector store using skills-based queries."""
-        k = top_k or settings.default_top_k
-        all_hits: List[Dict] = []
+        """
+        Retrieve chapter-writing context from Zero-Mem.
 
-        general_hits = retrieve(query, top_k=k)
-        all_hits.extend(general_hits)
-
+        One retrieval, not four: naming the characters/locations in the query
+        seeds the entity graph directly, and evidence closure brings in their
+        surrounding prose. (The old pipeline additionally fired a hard-coded
+        English "unresolved conflict tension mystery" query at this Vietnamese
+        corpus on every call.)
+        """
+        engine = get_engine()
+        parts = [query]
         if characters:
-            char_hits = retrieve_for_characters(characters, top_k=min(k, 3))
-            all_hits.extend(char_hits)
-
+            parts.append(" ".join(characters))
         if locations:
-            loc_hits = retrieve_for_locations(locations, top_k=min(k, 3))
-            all_hits.extend(loc_hits)
-
-        plot_hits = retrieve_for_plot(top_k=min(k, 3))
-        all_hits.extend(plot_hits)
-
-        seen = set()
-        deduped = []
-        for h in all_hits:
-            key = h["text"][:100]
-            if key not in seen:
-                seen.add(key)
-                deduped.append(h)
-
-        return _format_hits(deduped)
+            parts.append(" ".join(locations))
+        result = engine.build_context(
+            query=" \n".join(parts),
+            max_tokens=settings.max_context_tokens,
+            top_k=max(top_k or settings.default_top_k, 8),
+        )
+        if not result["context"]:
+            return "(No relevant context stored yet.)"
+        return result["context"]
 
     async def generate_chapter(
         self,
@@ -231,22 +221,27 @@ class NovelAgent:
             "Reply in the same language as the user's question."
         )
 
-    async def chat(
+    def _prepare_chat(
         self,
         message: str,
-        history: Optional[List[Dict]] = None,
-        top_k: Optional[int] = None,
-    ) -> Dict:
-        """RAG Q&A: retrieve context relevant to the question, then answer."""
-        k = top_k or settings.default_top_k
-        hits = retrieve(message, top_k=k)
-        context = _format_hits(hits)
-        sources = [
-            {"text": h["text"][:200], "source": h.get("metadata", {}).get("source", "unknown")}
-            for h in hits
-        ]
+        history: Optional[List[Dict]],
+        top_k: Optional[int],
+    ) -> tuple:
+        """Shared retrieval + prompt assembly for chat / chat_stream."""
+        engine = get_engine()
 
-        system = self.build_chat_system_prompt()
+        # Recent conversation turns often hold the referent of "cậu ấy/him/it";
+        # folding them into the retrieval query keeps follow-ups grounded.
+        recent_user = " ".join(
+            t.get("content", "") for t in (history or [])[-4:] if t.get("role") == "user"
+        )
+        result = engine.build_context(
+            query=message if not recent_user else "%s\n%s" % (recent_user, message),
+            max_tokens=settings.max_context_tokens,
+            top_k=max(top_k or settings.default_top_k, 6),
+        )
+        context = result["context"] or "(No relevant context stored yet.)"
+        sources = _sources_from_used(result["used"])
 
         conv_parts = []
         if history:
@@ -259,6 +254,16 @@ class NovelAgent:
             user_prompt += "## Conversation History\n\n" + "\n".join(conv_parts) + "\n\n"
         user_prompt += f"## Question\n\n{message}"
 
+        return self.build_chat_system_prompt(), user_prompt, sources
+
+    async def chat(
+        self,
+        message: str,
+        history: Optional[List[Dict]] = None,
+        top_k: Optional[int] = None,
+    ) -> Dict:
+        """Q&A over the story memory: structured evidence selection, then answer."""
+        system, user_prompt, sources = self._prepare_chat(message, history, top_k)
         answer = await self.llm.generate(
             system_prompt=system,
             user_prompt=user_prompt,
@@ -273,28 +278,8 @@ class NovelAgent:
         history: Optional[List[Dict]] = None,
         top_k: Optional[int] = None,
     ) -> tuple:
-        """Streaming RAG Q&A. Returns (async_iterator, sources)."""
-        k = top_k or settings.default_top_k
-        hits = retrieve(message, top_k=k)
-        context = _format_hits(hits)
-        sources = [
-            {"text": h["text"][:200], "source": h.get("metadata", {}).get("source", "unknown")}
-            for h in hits
-        ]
-
-        system = self.build_chat_system_prompt()
-
-        conv_parts = []
-        if history:
-            for turn in history[-6:]:
-                role = turn.get("role", "user")
-                conv_parts.append(f"{'User' if role == 'user' else 'Assistant'}: {turn['content']}")
-
-        user_prompt = f"## Retrieved Context\n\n{context}\n\n"
-        if conv_parts:
-            user_prompt += "## Conversation History\n\n" + "\n".join(conv_parts) + "\n\n"
-        user_prompt += f"## Question\n\n{message}"
-
+        """Streaming Q&A. Returns (async_iterator, sources)."""
+        system, user_prompt, sources = self._prepare_chat(message, history, top_k)
         stream = self.llm.generate_stream(
             system_prompt=system,
             user_prompt=user_prompt,

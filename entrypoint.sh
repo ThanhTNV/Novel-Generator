@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-mkdir -p /app/data/vectorstore /app/data/chapters
+mkdir -p /app/data/memory /app/data/chapters
 
 echo "Novel Generator"
 echo "  Provider : ${DEFAULT_LLM_PROVIDER:-claude}"

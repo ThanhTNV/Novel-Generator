@@ -1,182 +1,96 @@
 """
-RAG Pipeline: embedding, chunking, ingestion, retrieval, and reranking via ChromaDB.
+Memory pipeline facade — Zero-Mem edition (arXiv:2607.29377).
+
+The ChromaDB chunk-and-hope RAG pipeline that used to live here is replaced by
+a Zero-Mem engine: verbatim narrative traces in SQLite, a character/location
+entity graph with Personalized PageRank, BM25 + dense dual-view retrieval, and
+evidence closure that returns contiguous, correctly-attributed passages.
+
+Why the old pipeline lost context, concretely:
+
+* its sentence splitter required ``[A-Z]`` after punctuation, which never
+  matches Vietnamese capitals (Đ, Ư, Ổ, ...), so this Vietnamese novel barely
+  split — the whole character bible collapsed into two ~400-word blobs;
+* chunks were keyed by ``sha256(text)`` and never superseded, so every chapter
+  revision left stale contradictory chunks behind, all still retrievable;
+* every generation ran a hard-coded English query ("unresolved conflict
+  tension mystery") against the Vietnamese corpus;
+* top-k fragments arrived shuffled and unattributed, so retrieved facts were
+  routinely blended across characters.
+
+The public functions below keep their old names/signatures so ``server.py``
+and CI continue to work unchanged. ``characters``/``locations`` arguments are
+accepted but no longer required — entity extraction is automatic now.
 """
 
-import hashlib
-import re
+import threading
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
-import chromadb
-from chromadb.config import Settings as ChromaSettings
-
 from backend.config import settings
+from backend.zero_mem.embeddings import create_embedder
+from backend.zero_mem.engine import ZeroMemEngine
+from backend.zero_mem.segment import segment_document
 
-_client = None  # type: Optional[chromadb.ClientAPI]
-_embedding_fn = None
-_reranker = None
-
-
-def _get_chroma_client() -> chromadb.ClientAPI:
-    global _client
-    if _client is None:
-        _client = chromadb.PersistentClient(
-            path=settings.chroma_persist_dir,
-            settings=ChromaSettings(anonymized_telemetry=False),
-        )
-    return _client
+_engine: Optional[ZeroMemEngine] = None
+_engine_lock = threading.Lock()
 
 
-def _get_embedding_function():
-    global _embedding_fn
-    if _embedding_fn is not None:
-        return _embedding_fn
-
-    if settings.embedding_provider == "openai":
-        from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
-        _embedding_fn = OpenAIEmbeddingFunction(
-            api_key=settings.openai_api_key,
-            model_name=settings.embedding_model,
-        )
-    else:
-        from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
-        _embedding_fn = SentenceTransformerEmbeddingFunction(
-            model_name=settings.embedding_model,
-        )
-    return _embedding_fn
+def _log(msg: str) -> None:
+    print(msg)
 
 
-def _get_reranker():
-    """Lazy-load cross-encoder reranker."""
-    global _reranker
-    if _reranker is not None:
-        return _reranker
-    if not settings.reranker_model:
-        return None
-    from sentence_transformers import CrossEncoder
-    _reranker = CrossEncoder(settings.reranker_model)
-    return _reranker
-
-
-def get_collection(name: str = "novel") -> chromadb.Collection:
-    client = _get_chroma_client()
-    return client.get_or_create_collection(
-        name=name,
-        embedding_function=_get_embedding_function(),
-        metadata={"hnsw:space": "cosine"},
-    )
+def get_engine() -> ZeroMemEngine:
+    """Process-wide Zero-Mem engine (lazy: embeddings may load a model)."""
+    global _engine
+    if _engine is None:
+        with _engine_lock:
+            if _engine is None:
+                embedder = create_embedder(
+                    provider=settings.embedding_provider,
+                    model_name=settings.embedding_model,
+                    openai_api_key=settings.openai_api_key,
+                    logger=_log,
+                )
+                _engine = ZeroMemEngine(
+                    db_path=settings.zero_mem_db,
+                    context_dir=settings.context_dir,
+                    embedder=embedder,
+                    logger=_log,
+                )
+    return _engine
 
 
 # ---------------------------------------------------------------------------
-# Chunking — sentence-aware recursive splitter
+# Back-compat API (same names the server / CI import)
 # ---------------------------------------------------------------------------
 
-_SENTENCE_RE = re.compile(
-    r'(?<=[.!?…])'    # after sentence-ending punctuation
-    r'(?:\s*["\'""'')}\]]*)'  # optional closing quotes/brackets
-    r'\s+'             # whitespace boundary
-    r'(?=[A-Z"\'""''({[\[])'  # next sentence starts with uppercase or opening quote
-)
-
-_PARAGRAPH_RE = re.compile(r'\n\s*\n')
-
-
-def _split_sentences(text: str) -> List[str]:
-    """Split text into sentences, preserving paragraph breaks."""
-    paragraphs = _PARAGRAPH_RE.split(text)
-    sentences = []
-    for para in paragraphs:
-        parts = _SENTENCE_RE.split(para.strip())
-        sentences.extend(p.strip() for p in parts if p.strip())
-    return sentences
-
-
-def _count_words(text: str) -> int:
-    return len(text.split())
-
-
-def chunk_text(
-    text: str,
-    chunk_size: int = settings.default_chunk_size,
-    overlap: int = settings.default_chunk_overlap,
-) -> List[str]:
-    """Split text into overlapping chunks along sentence boundaries.
-
-    Tries paragraph breaks first, then sentence breaks.  Never cuts
-    mid-sentence unless a single sentence exceeds chunk_size words.
+def chunk_text(text: str, chunk_size: int = 0, overlap: int = 0) -> List[str]:
     """
-    sentences = _split_sentences(text)
-    if not sentences:
-        return []
+    Compatibility shim: segmentation replaced chunking. Returns the verbatim
+    narrative units (paragraph/bullet granularity, Unicode-aware sentences).
+    The chunk_size/overlap knobs are obsolete and ignored.
+    """
+    return [seg.text for seg in segment_document(text) if seg.kind != "heading"]
 
-    chunks: List[str] = []
-    current: List[str] = []
-    current_len = 0
-
-    for sent in sentences:
-        sent_len = _count_words(sent)
-
-        if current and current_len + sent_len > chunk_size:
-            chunks.append(" ".join(current))
-
-            # Keep trailing sentences for overlap
-            overlap_buf: List[str] = []
-            overlap_len = 0
-            for s in reversed(current):
-                s_len = _count_words(s)
-                if overlap_len + s_len > overlap:
-                    break
-                overlap_buf.insert(0, s)
-                overlap_len += s_len
-            current = overlap_buf
-            current_len = overlap_len
-
-        current.append(sent)
-        current_len += sent_len
-
-    if current:
-        chunks.append(" ".join(current))
-
-    return chunks
-
-
-def _stable_id(text: str) -> str:
-    return hashlib.sha256(text.encode()).hexdigest()[:16]
-
-
-# ---------------------------------------------------------------------------
-# Ingestion
-# ---------------------------------------------------------------------------
 
 def ingest_text(
     text: str,
-    source: str = "unknown",
+    source: str = "manual",
     chapter: str = "",
-    characters: Optional[List[str]] = None,
-    locations: Optional[List[str]] = None,
-    collection_name: str = "novel",
+    characters: Optional[List[str]] = None,   # kept for API compat; automatic now
+    locations: Optional[List[str]] = None,    # kept for API compat; automatic now
+    collection_name: str = "novel",           # obsolete; single store
 ) -> int:
-    """Chunk and store text in ChromaDB. Returns number of chunks stored."""
-    collection = get_collection(collection_name)
-    chunks = chunk_text(text)
-
-    ids, documents, metadatas = [], [], []
-    for i, chunk in enumerate(chunks):
-        doc_id = _stable_id(chunk)
-        ids.append(doc_id)
-        documents.append(chunk)
-        metadatas.append({
-            "source": source,
-            "chapter": chapter,
-            "characters": ",".join(characters or []),
-            "locations": ",".join(locations or []),
-            "chunk_index": i,
-        })
-
-    if ids:
-        collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
-
-    return len(ids)
+    """Store a document, superseding any previous version of the same source."""
+    engine = get_engine()
+    chapter_num: Optional[int] = None
+    if chapter:
+        digits = "".join(c for c in str(chapter) if c.isdigit())
+        if digits:
+            chapter_num = int(digits)
+    kind = "chapter" if chapter_num is not None else "document"
+    return engine.ingest_text(text, source=source, kind=kind, chapter=chapter_num)
 
 
 def ingest_file(
@@ -186,57 +100,26 @@ def ingest_file(
     locations: Optional[List[str]] = None,
     collection_name: str = "novel",
 ) -> int:
-    """Read a text/markdown file and ingest its content."""
-    path = Path(filepath)
-    text = path.read_text(encoding="utf-8")
-    return ingest_text(
-        text=text,
-        source=path.name,
-        chapter=chapter,
-        characters=characters,
-        locations=locations,
-        collection_name=collection_name,
-    )
+    engine = get_engine()
+    chapter_num: Optional[int] = None
+    if chapter:
+        digits = "".join(c for c in str(chapter) if c.isdigit())
+        if digits:
+            chapter_num = int(digits)
+    return engine.ingest_file(str(filepath), chapter=chapter_num)
 
 
 def ingest_directory(
     directory: Union[str, Path],
     collection_name: str = "novel",
 ) -> int:
-    """Ingest all .md and .txt files in a directory."""
-    dirpath = Path(directory)
-    total = 0
-    for fpath in sorted(dirpath.glob("**/*")):
-        if fpath.suffix in (".md", ".txt") and fpath.is_file():
-            total += ingest_file(fpath, collection_name=collection_name)
-    return total
+    engine = get_engine()
+    count = engine.ingest_directory(str(directory))
+    # Context files define the cast; refresh the gazetteer and re-extract so
+    # documents ingested in the same call see the full entity list.
+    engine.refresh_gazetteer()
+    return count
 
-
-# ---------------------------------------------------------------------------
-# Reranking
-# ---------------------------------------------------------------------------
-
-def rerank(query: str, hits: List[Dict], top_n: Optional[int] = None) -> List[Dict]:
-    """Rerank hits with a cross-encoder. Falls back to original order if no model configured."""
-    ranker = _get_reranker()
-    if ranker is None or not hits:
-        return hits
-
-    pairs = [[query, h["text"]] for h in hits]
-    scores = ranker.predict(pairs)
-
-    for h, score in zip(hits, scores):
-        h["rerank_score"] = float(score)
-
-    ranked = sorted(hits, key=lambda h: h["rerank_score"], reverse=True)
-    if top_n:
-        ranked = ranked[:top_n]
-    return ranked
-
-
-# ---------------------------------------------------------------------------
-# Retrieval
-# ---------------------------------------------------------------------------
 
 def retrieve(
     query: str,
@@ -245,96 +128,38 @@ def retrieve(
     where: Optional[Dict] = None,
     do_rerank: bool = True,
 ) -> List[Dict]:
-    """Semantic search + optional reranking. Returns list of {text, metadata, distance}."""
-    collection = get_collection(collection_name)
-
-    if collection.count() == 0:
-        return []
-
-    fetch_k = top_k * 3 if (do_rerank and _get_reranker()) else top_k
-    fetch_k = min(fetch_k, collection.count())
-
-    kwargs = {
-        "query_texts": [query],
-        "n_results": fetch_k,
-    }
-    if where:
-        kwargs["where"] = where
-
-    results = collection.query(**kwargs)
-
-    hits = []
-    for i in range(len(results["ids"][0])):
+    """
+    Structured evidence selection. Returns the legacy hit shape
+    ({text, metadata, distance}) so /api/search responses stay stable.
+    """
+    engine = get_engine()
+    result = engine.search(query, top_k=top_k)
+    hits: List[Dict] = []
+    for ev in result["evidence"]:
+        t = ev.trace
         hits.append({
-            "text": results["documents"][0][i],
-            "metadata": results["metadatas"][0][i],
-            "distance": results["distances"][0][i] if results.get("distances") else None,
+            "text": t.text,
+            "metadata": {
+                "source": t.source,
+                "chapter": "" if t.chapter is None else str(t.chapter),
+                "heading": t.heading,
+                "kind": t.kind,
+                "seq": t.seq,
+                "role": ev.role,
+                "matched_entities": ",".join(ev.matched_entities),
+                "route": result["route"],
+            },
+            "distance": round(1.0 - min(ev.score, 1.0), 4),
         })
-
-    if do_rerank:
-        hits = rerank(query, hits, top_n=top_k)
-
     return hits
 
 
-def retrieve_for_characters(characters: List[str], top_k: int = 5) -> List[Dict]:
-    """Retrieve passages relevant to specific characters."""
-    all_hits = []
-    for char in characters:
-        hits = retrieve(
-            f"{char} appearance personality relationships dialogue",
-            top_k=top_k,
-        )
-        all_hits.extend(hits)
-    seen = set()
-    deduped = []
-    for h in all_hits:
-        key = h["text"][:100]
-        if key not in seen:
-            seen.add(key)
-            deduped.append(h)
-    return deduped
-
-
-def retrieve_for_locations(locations: List[str], top_k: int = 5) -> List[Dict]:
-    """Retrieve passages relevant to specific locations."""
-    all_hits = []
-    for loc in locations:
-        hits = retrieve(
-            f"{loc} geography architecture atmosphere description",
-            top_k=top_k,
-        )
-        all_hits.extend(hits)
-    seen = set()
-    deduped = []
-    for h in all_hits:
-        key = h["text"][:100]
-        if key not in seen:
-            seen.add(key)
-            deduped.append(h)
-    return deduped
-
-
-def retrieve_for_plot(query: str = "unresolved conflict tension mystery", top_k: int = 8) -> List[Dict]:
-    """Retrieve passages about active plot threads."""
-    return retrieve(query, top_k=top_k)
-
-
-# ---------------------------------------------------------------------------
-# Collection management
-# ---------------------------------------------------------------------------
-
 def get_collection_stats(collection_name: str = "novel") -> Dict:
-    collection = get_collection(collection_name)
-    return {
-        "name": collection_name,
-        "count": collection.count(),
-    }
+    stats = get_engine().stats()
+    stats["name"] = collection_name
+    stats["count"] = stats.get("segments", 0)
+    return stats
 
 
 def clear_collection(collection_name: str = "novel") -> None:
-    client = _get_chroma_client()
-    try:
-        client.delete_collection(collection_name)
-    except Exception:
-        pass
+    get_engine().clear()

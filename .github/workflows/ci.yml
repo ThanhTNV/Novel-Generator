@@ -32,11 +32,19 @@ jobs:
           python -c "
           from backend.config import settings
           from backend.rag_pipeline import chunk_text, ingest_text, retrieve
+          from backend.zero_mem import ZeroMemEngine, segment_document
           from backend.api_client import LLMClient
           from backend.agent import NovelAgent, load_rules, load_skills
           from backend.server import app
           print('All imports OK — Python ${{ matrix.python-version }}')
           "
+
+      - name: Zero-Mem test suite
+        env:
+          EMBEDDING_PROVIDER: hash
+        run: |
+          pip install pytest
+          python -m pytest tests/ -q
 
   test-app:
     name: Smoke test (py${{ matrix.python-version }})
@@ -56,6 +64,9 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Start server
+        env:
+          # hashed embeddings in CI: no multi-GB bge-m3 download
+          EMBEDDING_PROVIDER: hash
         run: |
           python main.py &
           sleep 8

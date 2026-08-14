@@ -14,12 +14,15 @@ class Settings(BaseSettings):
     default_llm_provider: str = "claude"
     default_model: str = "claude-sonnet-4-20250514"
 
+    # Dense embeddings for Zero-Mem's semantic view. "sentence-transformers"
+    # (bge-m3, multilingual) when installed, "openai", or "hash" for the
+    # dependency-free fallback. Retrieval degrades gracefully without a model:
+    # BM25 + the entity graph carry it.
     embedding_provider: str = "sentence-transformers"
     embedding_model: str = "BAAI/bge-m3"
 
-    reranker_model: str = "BAAI/bge-reranker-v2-m3"
-
-    chroma_persist_dir: str = str(ROOT_DIR / "vectorstore")
+    # Zero-Mem substrate (SQLite). Replaces the old ChromaDB vectorstore.
+    zero_mem_db: str = str(ROOT_DIR / "data" / "zero_mem.db")
 
     host: str = "0.0.0.0"
     port: int = 8000

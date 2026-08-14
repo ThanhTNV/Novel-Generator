@@ -9,8 +9,10 @@ anthropic>=0.42.0
 openai>=1.60.0
 groq>=0.15.0
 
-# RAG / Embeddings
-chromadb>=0.6.3
+# Zero-Mem memory (arXiv:2607.29377) is stdlib-only (sqlite3, re, math).
+# sentence-transformers powers its dense semantic view (BAAI/bge-m3,
+# multilingual); without it the engine falls back to hashed embeddings and
+# still works via BM25 + the entity graph.
 sentence-transformers>=3.4.0
 
 # Text processing

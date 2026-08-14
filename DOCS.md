@@ -32,7 +32,7 @@ Set `DEFAULT_LLM_PROVIDER=ollama` and `DEFAULT_MODEL=llama3.1` in `.env.docker`,
 
 | Volume | Container path | Purpose |
 |--------|---------------|---------|
-| `vectorstore_data` | `/app/data/vectorstore` | ChromaDB embeddings |
+| `memory_data` | `/app/data/memory` | Zero-Mem trace store (SQLite) |
 | `chapters_data` | `/app/data/chapters` | Finalized chapters |
 | `ollama_data` | `/root/.ollama` | Downloaded models (optional) |
 
@@ -107,7 +107,9 @@ Both accept `"stream": true` for SSE streaming.
 | `POST` | `/api/ingest/file` | Ingest a file by path |
 | `POST` | `/api/ingest/context` | Ingest all `context/` files |
 | `POST` | `/api/search` | Semantic search |
-| `GET` | `/api/vectordb/stats` | Chunk count |
+| `GET` | `/api/vectordb/stats` | Segment / entity / source counts |
+| `GET` | `/api/memory/entity/{name}` | Entity profile: mentions, passages, related entities |
+| `GET` | `/api/memory/sources` | Ingested documents (reference vs chapter) |
 | `DELETE` | `/api/vectordb/clear` | Wipe collection |
 
 ### Chapters
@@ -149,7 +151,7 @@ Defaults: `character-consistency.md`, `plot-thread-check.md`, `world-building.md
 
 ### Context (`context/*.md`)
 
-Your novel's world bible. Ingest these into ChromaDB via the Vector DB tab or `/api/ingest/context`. The RAG pipeline retrieves relevant chunks during generation.
+Your novel's world bible. Ingest via the Vector DB tab or `/api/ingest/context`. The Zero-Mem engine also harvests its entity gazetteer (characters, locations, artefacts) from these files' headings, so keep one `## Heading` per character/place. Retrieval returns contiguous passages under the correct heading during generation.
 
 ---
 

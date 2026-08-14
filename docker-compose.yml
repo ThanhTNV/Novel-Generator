@@ -10,9 +10,9 @@ services:
     environment:
       HOST: "0.0.0.0"
       PORT: "8000"
-      CHROMA_PERSIST_DIR: /app/data/vectorstore
+      ZERO_MEM_DB: /app/data/memory/zero_mem.db
     volumes:
-      - vectorstore_data:/app/data/vectorstore
+      - memory_data:/app/data/memory
       - chapters_data:/app/data/chapters
       - ./context:/app/context:ro
       - ./rules:/app/rules:ro
@@ -46,7 +46,7 @@ services:
       - with-ollama
 
 volumes:
-  vectorstore_data:
+  memory_data:
   chapters_data:
   ollama_data:
 

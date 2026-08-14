@@ -21,6 +21,7 @@ from backend.rag_pipeline import (
     retrieve,
     get_collection_stats,
     clear_collection,
+    get_engine,
 )
 
 
@@ -258,6 +259,18 @@ async def vectordb_stats():
 async def vectordb_clear():
     clear_collection()
     return {"status": "cleared"}
+
+
+@app.get("/api/memory/entity/{name}")
+async def memory_entity(name: str):
+    """What the story memory knows about one character/place/item."""
+    return get_engine().entity_profile(name)
+
+
+@app.get("/api/memory/sources")
+async def memory_sources():
+    """Every ingested document with segment counts, reference vs chapter."""
+    return {"sources": get_engine().store.sources()}
 
 
 # ---------------------------------------------------------------------------

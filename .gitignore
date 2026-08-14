@@ -24,3 +24,8 @@ chapters/*.md
 Thumbs.db
 *.swp
 *~
+
+# Zero-Mem trace store
+data/*.db
+data/*.db-shm
+data/*.db-wal
