@@ -108,7 +108,7 @@ Both accept `"stream": true` for SSE streaming.
 | `POST` | `/api/ingest/context` | Ingest all `context/` files |
 | `POST` | `/api/search` | Semantic search |
 | `GET` | `/api/vectordb/stats` | Segment / entity / source counts |
-| `GET` | `/api/memory/entity/{name}` | Entity profile: mentions, passages, related entities |
+| `GET` | `/api/memory/entity/{name}` | Entity profile: mentions, passages, relation triples, related entities |
 | `GET` | `/api/memory/sources` | Ingested documents (reference vs chapter) |
 | `DELETE` | `/api/vectordb/clear` | Wipe collection |
 

@@ -59,6 +59,24 @@ CREATE TABLE IF NOT EXISTS embeddings (
     vec         TEXT NOT NULL,
     PRIMARY KEY (segment_id, space)
 );
+
+CREATE TABLE IF NOT EXISTS relations (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    segment_id  INTEGER NOT NULL REFERENCES segments(id),
+    subject     TEXT NOT NULL,
+    relation    TEXT NOT NULL,
+    object      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_relations_segment ON relations(segment_id);
+
+-- SLM extraction results keyed by content hash: re-ingesting an edited
+-- chapter only re-extracts the paragraphs that actually changed.
+CREATE TABLE IF NOT EXISTS extract_cache (
+    hash        TEXT NOT NULL,
+    model       TEXT NOT NULL,
+    payload     TEXT NOT NULL,
+    PRIMARY KEY (hash, model)
+);
 """
 
 
@@ -137,6 +155,7 @@ class TraceStore(object):
         chapter: Optional[int] = None,
         ordinal: int = 0,
         timestamp: float = 0.0,
+        relations_per_segment: Optional[Sequence] = None,  # Sequence[List[dict]]
     ) -> List[int]:
         """
         Atomically replace everything previously stored for ``name``.
@@ -157,6 +176,9 @@ class TraceStore(object):
                     cur.execute(
                         "DELETE FROM embeddings WHERE segment_id IN "
                         "(SELECT id FROM segments WHERE source_id = ?)", (source_id,))
+                    cur.execute(
+                        "DELETE FROM relations WHERE segment_id IN "
+                        "(SELECT id FROM segments WHERE source_id = ?)", (source_id,))
                     cur.execute("DELETE FROM segments WHERE source_id = ?", (source_id,))
                     cur.execute(
                         "UPDATE sources SET kind=?, chapter=?, ordinal=?, updated_at=? WHERE id=?",
@@ -169,7 +191,7 @@ class TraceStore(object):
                     source_id = cur.lastrowid
 
                 ids: List[int] = []
-                for seg, mentions in zip(segments, mentions_per_segment):
+                for i, (seg, mentions) in enumerate(zip(segments, mentions_per_segment)):
                     cur.execute(
                         "INSERT INTO segments (source_id, seq, scene, heading, kind, text) "
                         "VALUES (?, ?, ?, ?, ?, ?)",
@@ -184,6 +206,12 @@ class TraceStore(object):
                             "INSERT INTO mentions (segment_id, entity_key, count) VALUES (?, ?, ?) "
                             "ON CONFLICT(segment_id, entity_key) DO UPDATE SET count = count + excluded.count",
                             (seg_id, m.key, m.count))
+                    if relations_per_segment:
+                        for r in relations_per_segment[i] or []:
+                            cur.execute(
+                                "INSERT INTO relations (segment_id, subject, relation, object) "
+                                "VALUES (?, ?, ?, ?)",
+                                (seg_id, r["subject"], r["relation"], r["object"]))
                 cur.execute(
                     "DELETE FROM entities WHERE key NOT IN (SELECT DISTINCT entity_key FROM mentions)")
                 self._db.commit()
@@ -222,6 +250,8 @@ class TraceStore(object):
                         "(SELECT id FROM segments WHERE source_id = ?)", (source_id,))
             cur.execute("DELETE FROM embeddings WHERE segment_id IN "
                         "(SELECT id FROM segments WHERE source_id = ?)", (source_id,))
+            cur.execute("DELETE FROM relations WHERE segment_id IN "
+                        "(SELECT id FROM segments WHERE source_id = ?)", (source_id,))
             cur.execute("DELETE FROM segments WHERE source_id = ?", (source_id,))
             cur.execute("DELETE FROM sources WHERE id = ?", (source_id,))
             cur.execute("DELETE FROM entities WHERE key NOT IN (SELECT DISTINCT entity_key FROM mentions)")
@@ -230,8 +260,57 @@ class TraceStore(object):
 
     def clear(self) -> None:
         with self._lock:
-            for table in ("mentions", "embeddings", "segments", "sources", "entities"):
+            # extract_cache intentionally survives: it is keyed by content
+            # hash, so re-ingesting the same text later costs no API calls.
+            for table in ("mentions", "embeddings", "relations", "segments", "sources", "entities"):
                 self._db.execute("DELETE FROM %s" % table)
+            self._db.commit()
+
+    # -- relations ----------------------------------------------------------
+
+    def relations_for_segment(self, segment_id: int) -> List[Dict[str, str]]:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT subject, relation, object FROM relations WHERE segment_id = ?",
+                (segment_id,)).fetchall()
+        return [{"subject": s, "relation": r, "object": o} for s, r, o in rows]
+
+    def all_relations(self) -> List[Dict[str, Any]]:
+        """All triples, newest first. Matching happens in Python because
+        SQLite's LOWER()/LIKE are ASCII-only and would miss 'Đồ Lục'."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT segment_id, subject, relation, object FROM relations "
+                "ORDER BY id DESC").fetchall()
+        return [
+            {"segment_id": sid, "subject": s, "relation": rel, "object": o}
+            for sid, s, rel, o in rows
+        ]
+
+    def relation_count(self) -> int:
+        with self._lock:
+            return self._db.execute("SELECT COUNT(*) FROM relations").fetchone()[0]
+
+    # -- extraction cache ---------------------------------------------------
+
+    def cache_get(self, hashes: Sequence[str], model: str) -> Dict[str, str]:
+        if not hashes:
+            return {}
+        with self._lock:
+            placeholders = ",".join("?" for _ in hashes)
+            rows = self._db.execute(
+                "SELECT hash, payload FROM extract_cache WHERE model = ? AND hash IN (%s)" % placeholders,
+                [model] + list(hashes)).fetchall()
+        return dict(rows)
+
+    def cache_put(self, items: Sequence[Tuple[str, str]], model: str) -> None:
+        if not items:
+            return
+        with self._lock:
+            self._db.executemany(
+                "INSERT INTO extract_cache (hash, model, payload) VALUES (?, ?, ?) "
+                "ON CONFLICT(hash, model) DO UPDATE SET payload = excluded.payload",
+                [(h, model, p) for h, p in items])
             self._db.commit()
 
     # -- reading ------------------------------------------------------------

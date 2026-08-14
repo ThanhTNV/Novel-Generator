@@ -16,6 +16,7 @@ handed six disconnected 400-word chunks writes incoherent prose, while the same
 budget spent on two contiguous, correctly-attributed passages does not.
 """
 
+import hashlib
 import os
 import re
 import time
@@ -23,7 +24,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from .embeddings import HashEmbedder, create_embedder
-from .extract import Gazetteer, build_gazetteer, extract_entities
+from .extract import Gazetteer, Mention, _canonical, build_gazetteer, extract_entities
+from .gemini import GeminiExtractorError, SegmentExtraction
 from .graph import EntityGraph
 from .segment import Segment, segment_document
 from .store import Trace, TraceStore
@@ -106,12 +108,16 @@ class ZeroMemEngine(object):
         db_path: str,
         context_dir: Optional[str] = None,
         embedder=None,
+        extractor=None,
         logger: Optional[Callable[[str], None]] = None,
     ):
         self.log = logger or (lambda msg: None)
         self.store = TraceStore(db_path)
         self.context_dir = context_dir
         self.embedder = embedder or HashEmbedder()
+        # Optional SLM extractor (Gemini). The deterministic gazetteer/pattern
+        # pipeline always runs; the SLM adds relations and unlisted entities.
+        self.extractor = extractor
         self.gazetteer: Gazetteer = build_gazetteer(context_dir)
         self.graph = EntityGraph()
         self.bm25 = BM25Index()
@@ -189,6 +195,7 @@ class ZeroMemEngine(object):
             self.reload()
             return 0
         mentions = [extract_entities(s.text, self.gazetteer) for s in segments]
+        relations = self._slm_enrich(segments, mentions)
         # Heading text describes everything beneath it; attach its entities to
         # the segments in its scene so "Văn Tâm" grounds his own bullet list.
         by_scene: Dict[int, List] = {}
@@ -207,9 +214,56 @@ class ZeroMemEngine(object):
         self.store.replace_source(
             name=source, segments=segments, mentions_per_segment=mentions,
             kind=kind, chapter=chapter, ordinal=ordinal, timestamp=time.time(),
+            relations_per_segment=relations,
         )
         self.reload()
         return len(segments)
+
+    def _slm_enrich(self, segments: Sequence[Segment], mentions: List[List[Mention]]) -> Optional[List[List[Dict[str, str]]]]:
+        """
+        Run the Gemini extractor over prose segments (cache-aware), merge its
+        entities into the local mention lists, and return per-segment relation
+        triples. Returns None when no extractor is configured; never raises.
+        """
+        if self.extractor is None:
+            return None
+        model = getattr(self.extractor, "model", "gemini")
+        # Headings carry no facts; don't spend API tokens on them.
+        work = [i for i, s in enumerate(segments) if s.kind != "heading"]
+        hashes = dict(
+            (i, hashlib.sha256(segments[i].text.encode("utf-8")).hexdigest())
+            for i in work
+        )
+        cached = self.store.cache_get(list(set(hashes.values())), model)
+        missing = [i for i in work if hashes[i] not in cached]
+
+        extracted: Dict[int, SegmentExtraction] = {}
+        for i in work:
+            if hashes[i] in cached:
+                try:
+                    extracted[i] = SegmentExtraction.from_json(cached[hashes[i]])
+                except ValueError:
+                    missing.append(i)
+        if missing:
+            try:
+                results = self.extractor.extract_segments([segments[i].text for i in missing])
+                to_cache = []
+                for i, res in zip(missing, results):
+                    extracted[i] = res
+                    to_cache.append((hashes[i], res.to_json()))
+                self.store.cache_put(to_cache, model)
+            except GeminiExtractorError as exc:
+                self.log("zero-mem: Gemini extraction failed (%s); gazetteer/pattern NER covers this ingest." % exc)
+
+        relations: List[List[Dict[str, str]]] = [[] for _ in segments]
+        for i, res in extracted.items():
+            known = set(m.key for m in mentions[i])
+            for m in res.entities:
+                if m.key not in known:
+                    mentions[i].append(m)
+                    known.add(m.key)
+            relations[i] = res.relations
+        return relations
 
     def _next_ordinal(self, kind: str) -> int:
         # Reference material sorts before narrative so chapters keep natural order.
@@ -519,6 +573,24 @@ class ZeroMemEngine(object):
             prev = t
         flush()
 
+        # Known relation triples for the entities this query is about — the
+        # SLM extractor's structured facts, cheap insurance against the model
+        # contradicting established relationships.
+        rel_lines: List[str] = []
+        seen_rel: Set[str] = set()
+        for ent_name in result["profile"]["entities"]:
+            for rel in self._relations_for(ent_name, _canonical(ent_name), limit=8):
+                line = "- %s —%s→ %s" % (rel["subject"], rel["relation"], rel["object"])
+                if line not in seen_rel:
+                    seen_rel.add(line)
+                    rel_lines.append(line)
+        if rel_lines:
+            rel_block = "### Quan hệ đã biết (known relations)\n" + "\n".join(rel_lines[:10])
+            cost = estimate_tokens(rel_block)
+            if spent + cost <= max_tokens:
+                blocks.append(rel_block)
+                spent += cost
+
         return {
             "context": "\n\n".join(blocks),
             "used": used,
@@ -534,10 +606,23 @@ class ZeroMemEngine(object):
         base.update({
             "embedder": getattr(self.embedder, "name", "unknown"),
             "vector_space": self.embedder.space,
+            "extractor": getattr(self.extractor, "model", None) or "local-gazetteer-ner",
+            "relations": self.store.relation_count(),
             "gazetteer_entries": len(self.gazetteer),
             "indexed_segments": len(self.traces),
         })
         return base
+
+    def _relations_for(self, display: str, key: str, limit: int = 25) -> List[Dict[str, Any]]:
+        """Triples where the entity is subject or object, accent-folded."""
+        wanted = set(k for k in (_canonical(display), key) if k)
+        out = []
+        for rel in self.store.all_relations():
+            if _canonical(rel["subject"]) in wanted or _canonical(rel["object"]) in wanted:
+                out.append(rel)
+                if len(out) >= limit:
+                    break
+        return out
 
     def entity_profile(self, name: str, limit: int = 8) -> Dict[str, Any]:
         """Everything the store knows about one character/place/item."""
@@ -557,6 +642,7 @@ class ZeroMemEngine(object):
             "found": True,
             "mentions": sum(seg_ids.values()),
             "segments": [t.to_dict() for t in traces[-limit:]],
+            "relations": self._relations_for(display, key),
             "related": [
                 {"name": n, "weight": round(w, 4)}
                 for k2, n, w in self.graph.neighbors(key, 14)

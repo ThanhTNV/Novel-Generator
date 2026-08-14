@@ -24,6 +24,15 @@ class Settings(BaseSettings):
     # Zero-Mem substrate (SQLite). Replaces the old ChromaDB vectorstore.
     zero_mem_db: str = str(ROOT_DIR / "data" / "zero_mem.db")
 
+    # Optional Gemini SLM extractor for Zero-Mem: adds relation triples and
+    # unlisted entities on top of the token-free gazetteer/pattern NER.
+    # Enabled automatically when GEMINI_API_KEY (or GOOGLE_API_KEY) is set;
+    # set ZERO_MEM_EXTRACTOR=local to force it off.
+    gemini_api_key: str = ""
+    google_api_key: str = ""
+    zero_mem_extractor: str = "auto"   # auto | gemini | local
+    zero_mem_extract_model: str = "gemini-2.5-flash-lite"
+
     host: str = "0.0.0.0"
     port: int = 8000
 

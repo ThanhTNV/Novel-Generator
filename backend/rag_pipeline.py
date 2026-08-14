@@ -30,6 +30,7 @@ from typing import Dict, List, Optional, Union
 from backend.config import settings
 from backend.zero_mem.embeddings import create_embedder
 from backend.zero_mem.engine import ZeroMemEngine
+from backend.zero_mem.gemini import create_extractor
 from backend.zero_mem.segment import segment_document
 
 _engine: Optional[ZeroMemEngine] = None
@@ -52,10 +53,19 @@ def get_engine() -> ZeroMemEngine:
                     openai_api_key=settings.openai_api_key,
                     logger=_log,
                 )
+                extractor = None
+                if settings.zero_mem_extractor in ("auto", "gemini"):
+                    api_key = settings.gemini_api_key or settings.google_api_key
+                    extractor = create_extractor(
+                        api_key, settings.zero_mem_extract_model, logger=_log
+                    )
+                    if extractor is None and settings.zero_mem_extractor == "gemini":
+                        _log("zero-mem: ZERO_MEM_EXTRACTOR=gemini but no GEMINI_API_KEY; using local NER.")
                 _engine = ZeroMemEngine(
                     db_path=settings.zero_mem_db,
                     context_dir=settings.context_dir,
                     embedder=embedder,
+                    extractor=extractor,
                     logger=_log,
                 )
     return _engine
