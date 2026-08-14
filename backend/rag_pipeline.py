@@ -47,15 +47,18 @@ def get_engine() -> ZeroMemEngine:
     if _engine is None:
         with _engine_lock:
             if _engine is None:
+                gemini_key = settings.gemini_api_key or settings.google_api_key
                 embedder = create_embedder(
                     provider=settings.embedding_provider,
                     model_name=settings.embedding_model,
                     openai_api_key=settings.openai_api_key,
+                    gemini_api_key=gemini_key,
+                    dims=settings.embedding_dims,
                     logger=_log,
                 )
                 extractor = None
                 if settings.zero_mem_extractor in ("auto", "gemini"):
-                    api_key = settings.gemini_api_key or settings.google_api_key
+                    api_key = gemini_key
                     extractor = create_extractor(
                         api_key, settings.zero_mem_extract_model, logger=_log
                     )

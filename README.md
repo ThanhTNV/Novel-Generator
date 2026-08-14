@@ -7,6 +7,7 @@ Generate, revise, and finalize novel chapters using Claude, OpenAI, Groq, or loc
 
 ## Features
 
+- **No local ML** — embeddings (`gemini-embedding-001`) and entity/relation extraction (`gemini-2.5-flash-lite`) both run in the cloud over plain HTTP. Set one `GEMINI_API_KEY` and the whole memory layer works; without it the engine uses a built-in hash function and still retrieves well via BM25 + the entity graph. Nothing is ever downloaded.
 - **Zero-Mem memory** — replaces the old ChromaDB RAG pipeline, which measurably lost context on this Vietnamese corpus: its sentence splitter required `[A-Z]` after punctuation (never matches Đ/Ư/Ổ...), collapsing the whole character bible into two ~400-word blobs; revised chapters left stale chunks behind forever; and every generation fired a hard-coded English plot query. Zero-Mem stores paragraphs verbatim with heading provenance, supersedes on re-ingest, grounds queries in an entity graph (accent-tolerant: "Van Tam" finds "Văn Tâm"), and returns contiguous passages in narrative order.
 - **Multi-provider LLM** — Claude, OpenAI, Groq, Ollama with streaming support.
 - **Skills & rules** — modular markdown files that shape every generation.

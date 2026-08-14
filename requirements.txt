@@ -10,10 +10,12 @@ openai>=1.60.0
 groq>=0.15.0
 
 # Zero-Mem memory (arXiv:2607.29377) is stdlib-only (sqlite3, re, math).
-# sentence-transformers powers its dense semantic view (BAAI/bge-m3,
-# multilingual); without it the engine falls back to hashed embeddings and
-# still works via BM25 + the entity graph.
-sentence-transformers>=3.4.0
+# Embeddings and entity/relation extraction run in the cloud via the Gemini
+# API over httpx — no local ML stack, no model downloads.
+#
+# Optional, only if you deliberately want local embeddings instead of the
+# cloud (pulls torch + a multi-GB model):
+#   pip install "sentence-transformers>=3.4.0"
 
 # Text processing
 tiktoken>=0.8.0

@@ -155,19 +155,50 @@ class ZeroMemEngine(object):
         return trace.text
 
     def _embed_traces(self, traces: Sequence[Trace]) -> None:
+        """
+        Embed segments, reusing any vector already computed for identical text.
+
+        Superseding a source gives its segments new row ids, so without the
+        content-hash cache every re-ingest would re-embed unchanged prose and
+        spend API quota for nothing.
+        """
         if not traces:
             return
+        space = self.embedder.space
+        texts = dict((t.id, self._indexable_text(t)) for t in traces)
+        hashes = dict(
+            (tid, hashlib.sha256(text.encode("utf-8")).hexdigest())
+            for tid, text in texts.items()
+        )
+        cached = self.store.embed_cache_get(list(set(hashes.values())), space)
+
+        pairs: List[Tuple[int, List[float]]] = []
+        misses = [t for t in traces if hashes[t.id] not in cached]
+        for t in traces:
+            vec = cached.get(hashes[t.id])
+            if vec is not None:
+                self._dense[t.id] = vec
+                pairs.append((t.id, vec))
+
+        if misses:
+            try:
+                vectors = self.embedder.encode([texts[t.id] for t in misses], is_query=False)
+            except Exception as exc:
+                self.log("zero-mem: embedding failed (%s); relying on BM25 + graph." % exc)
+                vectors = []
+            fresh: List[Tuple[str, List[float]]] = []
+            for trace, vec in zip(misses, vectors):
+                self._dense[trace.id] = vec
+                pairs.append((trace.id, vec))
+                fresh.append((hashes[trace.id], vec))
+            if fresh:
+                try:
+                    self.store.embed_cache_put(fresh, space)
+                except Exception as exc:
+                    self.log("zero-mem: could not cache embeddings (%s)." % exc)
+
         try:
-            vectors = self.embedder.encode([self._indexable_text(t) for t in traces], is_query=False)
-        except Exception as exc:
-            self.log("zero-mem: embedding failed (%s); relying on BM25 + graph." % exc)
-            return
-        pairs = []
-        for trace, vec in zip(traces, vectors):
-            self._dense[trace.id] = vec
-            pairs.append((trace.id, vec))
-        try:
-            self.store.save_embeddings(pairs, self.embedder.space)
+            self.store.save_embeddings(pairs, space)
         except Exception as exc:
             self.log("zero-mem: could not persist embeddings (%s)." % exc)
 

@@ -14,12 +14,16 @@ class Settings(BaseSettings):
     default_llm_provider: str = "claude"
     default_model: str = "claude-sonnet-4-20250514"
 
-    # Dense embeddings for Zero-Mem's semantic view. "sentence-transformers"
-    # (bge-m3, multilingual) when installed, "openai", or "hash" for the
-    # dependency-free fallback. Retrieval degrades gracefully without a model:
-    # BM25 + the entity graph carry it.
-    embedding_provider: str = "sentence-transformers"
-    embedding_model: str = "BAAI/bge-m3"
+    # Dense embeddings for Zero-Mem's semantic view — cloud by default, so
+    # nothing is downloaded or run locally.
+    #   auto    -> Gemini when GEMINI_API_KEY is set, else hash
+    #   gemini  -> gemini-embedding-001 (multilingual, free tier)
+    #   openai  -> text-embedding-3-small
+    #   hash    -> built-in deterministic function, offline, no download
+    #   sentence-transformers -> opt-in only; downloads a multi-GB local model
+    embedding_provider: str = "auto"
+    embedding_model: str = ""      # blank = provider's default
+    embedding_dims: int = 768
 
     # Zero-Mem substrate (SQLite). Replaces the old ChromaDB vectorstore.
     zero_mem_db: str = str(ROOT_DIR / "data" / "zero_mem.db")

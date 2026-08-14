@@ -77,6 +77,16 @@ CREATE TABLE IF NOT EXISTS extract_cache (
     payload     TEXT NOT NULL,
     PRIMARY KEY (hash, model)
 );
+
+-- Same idea for embeddings. Segments get new row ids when a source is
+-- superseded, so without this every re-ingest would re-embed unchanged prose
+-- and burn API quota for nothing.
+CREATE TABLE IF NOT EXISTS embed_cache (
+    hash        TEXT NOT NULL,
+    space       TEXT NOT NULL,
+    vec         TEXT NOT NULL,
+    PRIMARY KEY (hash, space)
+);
 """
 
 
@@ -311,6 +321,33 @@ class TraceStore(object):
                 "INSERT INTO extract_cache (hash, model, payload) VALUES (?, ?, ?) "
                 "ON CONFLICT(hash, model) DO UPDATE SET payload = excluded.payload",
                 [(h, model, p) for h, p in items])
+            self._db.commit()
+
+    def embed_cache_get(self, hashes: Sequence[str], space: str) -> Dict[str, List[float]]:
+        if not hashes:
+            return {}
+        out: Dict[str, List[float]] = {}
+        hashes = list(hashes)
+        with self._lock:
+            # SQLite caps variables per statement; chunk the IN list.
+            for i in range(0, len(hashes), 400):
+                chunk = hashes[i:i + 400]
+                placeholders = ",".join("?" for _ in chunk)
+                rows = self._db.execute(
+                    "SELECT hash, vec FROM embed_cache WHERE space = ? AND hash IN (%s)" % placeholders,
+                    [space] + chunk).fetchall()
+                for h, vec in rows:
+                    out[h] = json.loads(vec)
+        return out
+
+    def embed_cache_put(self, items: Sequence[Tuple[str, List[float]]], space: str) -> None:
+        if not items:
+            return
+        with self._lock:
+            self._db.executemany(
+                "INSERT INTO embed_cache (hash, space, vec) VALUES (?, ?, ?) "
+                "ON CONFLICT(hash, space) DO UPDATE SET vec = excluded.vec",
+                [(h, space, json.dumps([round(v, 6) for v in vec])) for h, vec in items])
             self._db.commit()
 
     # -- reading ------------------------------------------------------------

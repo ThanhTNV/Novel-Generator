@@ -1,20 +1,34 @@
 """
-Pluggable dense embedder.
+Pluggable dense embedder — cloud first, no local model required.
 
 Order of preference:
-  1. sentence-transformers (the project's existing BAAI/bge-m3, multilingual —
-     the right choice for a Vietnamese corpus) when installed;
-  2. OpenAI embeddings when configured;
-  3. a built-in hashed n-gram embedding that needs no model download.
+  1. **Google AI Studio** ``gemini-embedding-001`` (multilingual, strong on
+     Vietnamese; $0.15/1M tokens with a free tier) — the default whenever a
+     Gemini key is present. Nothing is downloaded or run locally.
+  2. OpenAI embeddings, if you'd rather use that key.
+  3. A built-in hashed n-gram embedding: not a model, just a deterministic
+     function, so it needs no download and works offline. Retrieval still
+     holds up because BM25 and the entity graph do most of the work.
+
+Optional: sentence-transformers, only if you explicitly ask for it.
 
 Whichever is chosen, vectors are L2-normalised and persisted under a *vector
 space* id combining model and dimensionality, so switching models can never
 silently compare incomparable vectors.
 """
 
+import json
 from typing import Dict, List, Optional, Sequence
 
+import httpx
+
 from .text import EMBED_DIM, hash_embed, l2_normalize
+
+GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
+DEFAULT_GEMINI_EMBED_MODEL = "gemini-embedding-001"
+DEFAULT_EMBED_DIMS = 768
+EMBED_BATCH_LIMIT = 100
+EMBED_TIMEOUT_S = 60.0
 
 
 class HashEmbedder(object):
@@ -28,6 +42,88 @@ class HashEmbedder(object):
 
     def encode(self, texts: Sequence[str], is_query: bool = False) -> List[List[float]]:
         return [hash_embed(t, self.dim) for t in texts]
+
+
+class GeminiEmbedder(object):
+    """
+    Google AI Studio embeddings. Retrieval is asymmetric, so stored prose is
+    embedded as RETRIEVAL_DOCUMENT and queries as RETRIEVAL_QUERY — a real
+    quality gain the task-type-less models can't offer.
+    """
+
+    name = "gemini"
+
+    def __init__(
+        self,
+        api_key: str,
+        model: str = DEFAULT_GEMINI_EMBED_MODEL,
+        dims: int = DEFAULT_EMBED_DIMS,
+        client: Optional[httpx.Client] = None,
+    ):
+        self.api_key = api_key
+        self.model_name = model
+        self.dim = dims
+        self.space = "%s@%d" % (model, dims)
+        self._client = client or httpx.Client(timeout=EMBED_TIMEOUT_S)
+
+    # gemini-embedding-001 accepts 2048 input tokens; cap conservatively by
+    # characters so a pathological paragraph can't fail the whole batch.
+    def _cap(self, text: str) -> str:
+        limit = 24000 if "embedding-2" in self.model_name else 6000
+        return text[:limit]
+
+    def _supports_task_type(self) -> bool:
+        return "embedding-001" in self.model_name
+
+    def _payload(self, text: str, is_query: bool) -> Dict:
+        body = {
+            "content": {"parts": [{"text": self._cap(text)}]},
+            "outputDimensionality": self.dim,
+        }
+        if self._supports_task_type():
+            body["taskType"] = "RETRIEVAL_QUERY" if is_query else "RETRIEVAL_DOCUMENT"
+        return body
+
+    def _post(self, endpoint: str, body: Dict) -> Dict:
+        resp = self._client.post(
+            "%s/models/%s:%s" % (GEMINI_BASE, self.model_name, endpoint),
+            headers={"x-goog-api-key": self.api_key, "Content-Type": "application/json"},
+            json=body,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    @staticmethod
+    def _vector(values) -> List[float]:
+        if not values:
+            raise RuntimeError("Gemini returned an empty embedding")
+        # Below 3072 dims gemini-embedding-001 returns UNNORMALISED vectors.
+        return l2_normalize([float(v) for v in values])
+
+    def encode(self, texts: Sequence[str], is_query: bool = False) -> List[List[float]]:
+        texts = list(texts)
+        if not texts:
+            return []
+        if len(texts) == 1:
+            data = self._post("embedContent", self._payload(texts[0], is_query))
+            return [self._vector((data.get("embedding") or {}).get("values"))]
+
+        out: List[List[float]] = []
+        for i in range(0, len(texts), EMBED_BATCH_LIMIT):
+            chunk = texts[i:i + EMBED_BATCH_LIMIT]
+            body = {"requests": []}
+            for t in chunk:
+                req = self._payload(t, is_query)
+                req["model"] = "models/" + self.model_name
+                body["requests"].append(req)
+            data = self._post("batchEmbedContents", body)
+            embeddings = data.get("embeddings") or []
+            if len(embeddings) != len(chunk):
+                raise RuntimeError("Gemini batchEmbedContents returned %d of %d vectors"
+                                   % (len(embeddings), len(chunk)))
+            for e in embeddings:
+                out.append(self._vector(e.get("values")))
+        return out
 
 
 class SentenceTransformerEmbedder(object):
@@ -75,35 +171,57 @@ class OpenAIEmbedder(object):
 
 def create_embedder(
     provider: str,
-    model_name: str,
+    model_name: str = "",
     openai_api_key: str = "",
+    gemini_api_key: str = "",
+    dims: int = DEFAULT_EMBED_DIMS,
     logger=None,
 ):
-    """Build the configured embedder, degrading to hashing if unavailable."""
+    """
+    Build the configured embedder, degrading to hashing if unavailable.
+
+    provider: 'auto' (Gemini when a key exists, else hash) | 'gemini' |
+              'openai' | 'hash' | 'sentence-transformers'
+    """
     def note(msg: str) -> None:
         if logger:
             logger(msg)
 
-    provider = (provider or "").lower()
+    provider = (provider or "auto").lower()
+
+    if provider == "auto":
+        provider = "gemini" if gemini_api_key else "hash"
+        if provider == "hash":
+            note("zero-mem: no GEMINI_API_KEY; using hashed embeddings "
+                 "(no download, no network). BM25 + the entity graph carry retrieval.")
+
     if provider in ("hash", "none", "off"):
         return HashEmbedder()
+
+    if provider == "gemini":
+        if not gemini_api_key:
+            note("zero-mem: EMBEDDING_PROVIDER=gemini but no GEMINI_API_KEY; using hashed embeddings.")
+            return HashEmbedder()
+        return GeminiEmbedder(
+            gemini_api_key, model_name or DEFAULT_GEMINI_EMBED_MODEL, dims
+        )
 
     if provider == "openai":
         if not openai_api_key:
             note("zero-mem: OPENAI_API_KEY missing; falling back to hashed embeddings.")
             return HashEmbedder()
         try:
-            return OpenAIEmbedder(model_name, openai_api_key)
+            return OpenAIEmbedder(model_name or "text-embedding-3-small", openai_api_key)
         except Exception as exc:  # pragma: no cover - depends on env
             note("zero-mem: OpenAI embedder unavailable (%s); using hashed embeddings." % exc)
             return HashEmbedder()
 
+    # sentence-transformers: opt-in only — it downloads a multi-GB local model.
     try:
-        return SentenceTransformerEmbedder(model_name)
+        return SentenceTransformerEmbedder(model_name or "BAAI/bge-m3")
     except Exception as exc:
         note(
             "zero-mem: sentence-transformers unavailable (%s); using hashed embeddings. "
-            "Retrieval still works — BM25 and the entity graph carry it — but "
-            "cross-wording semantic matches will be weaker." % exc
+            "Retrieval still works — BM25 and the entity graph carry it." % exc
         )
         return HashEmbedder()
