@@ -130,9 +130,18 @@ class TestProviderSelection:
         assert isinstance(create_embedder("hash", gemini_api_key="k"), HashEmbedder)
 
     def test_no_local_model_is_loaded_by_default(self):
-        """Default config must not pull sentence-transformers."""
-        from backend.config import settings
-        assert settings.embedding_provider == "auto"
+        """
+        The shipped default must not pull sentence-transformers.
+
+        Read the field default rather than the live `settings`: CI runs the
+        suite with EMBEDDING_PROVIDER=hash, so asserting on the resolved value
+        tested the ambient environment, not the default, and failed there.
+        """
+        from backend.config import Settings, settings
+        shipped = Settings.model_fields["embedding_provider"].default
+        assert shipped == "auto"
+        # Whatever the environment selects, it must never be the local stack
+        # unless someone asked for it explicitly.
         assert "sentence" not in settings.embedding_provider
 
 

@@ -35,10 +35,14 @@ class HashEmbedder(object):
     """Deterministic, dependency-free. Lexical-ish rather than truly semantic."""
 
     name = "hash"
+    # Bumped when the hashing changes shape. Vectors persisted by an older
+    # revision live under the previous space id, so they are simply not loaded
+    # and get recomputed — never silently compared against the new ones.
+    version = "v2"
 
     def __init__(self, dim: int = EMBED_DIM):
         self.dim = dim
-        self.space = "hash@%d" % dim
+        self.space = "hash-%s@%d" % (self.version, dim)
 
     def encode(self, texts: Sequence[str], is_query: bool = False) -> List[List[float]]:
         return [hash_embed(t, self.dim) for t in texts]
@@ -149,23 +153,43 @@ class SentenceTransformerEmbedder(object):
 class OpenAIEmbedder(object):
     name = "openai"
 
-    def __init__(self, model_name: str, api_key: str):
+    # text-embedding-3-* accept an explicit `dimensions`; ada-002 does not.
+    _NATIVE_DIMS = {
+        "text-embedding-3-small": 1536,
+        "text-embedding-3-large": 3072,
+        "text-embedding-ada-002": 1536,
+    }
+
+    def __init__(self, model_name: str, api_key: str, dims: int = 0):
         from openai import OpenAI
         self._client = OpenAI(api_key=api_key)
         self.model_name = model_name
-        self.dim = 0
-        self.space = model_name
+        # The space id must be final before the first encode(). The engine
+        # reads embedder.space during reload() to load persisted vectors, which
+        # happens *before* anything is encoded — a space that only became
+        # correct after the first call meant stored vectors were never found
+        # and the whole corpus was re-embedded on every process start.
+        self.dim = dims or self._NATIVE_DIMS.get(model_name, 1536)
+        self._resizable = model_name.startswith("text-embedding-3")
+        self.space = "%s@%d" % (model_name, self.dim)
 
     def encode(self, texts: Sequence[str], is_query: bool = False) -> List[List[float]]:
         out: List[List[float]] = []
         batch = list(texts)
         for i in range(0, len(batch), 128):
-            resp = self._client.embeddings.create(model=self.model_name, input=batch[i:i + 128])
+            kwargs = {"model": self.model_name, "input": batch[i:i + 128]}
+            if self._resizable:
+                kwargs["dimensions"] = self.dim
+            resp = self._client.embeddings.create(**kwargs)
             for item in resp.data:
                 out.append(l2_normalize([float(x) for x in item.embedding]))
-        if out and not self.dim:
-            self.dim = len(out[0])
-            self.space = "%s@%d" % (self.model_name, self.dim)
+        if out and len(out[0]) != self.dim:
+            # A model returned a width we did not predict. Fail loudly rather
+            # than persist vectors under a space id that misdescribes them.
+            raise RuntimeError(
+                "OpenAI %s returned %d dims, expected %d — set EMBEDDING_DIMS to match."
+                % (self.model_name, len(out[0]), self.dim)
+            )
         return out
 
 
@@ -211,7 +235,7 @@ def create_embedder(
             note("zero-mem: OPENAI_API_KEY missing; falling back to hashed embeddings.")
             return HashEmbedder()
         try:
-            return OpenAIEmbedder(model_name or "text-embedding-3-small", openai_api_key)
+            return OpenAIEmbedder(model_name or "text-embedding-3-small", openai_api_key, dims)
         except Exception as exc:  # pragma: no cover - depends on env
             note("zero-mem: OpenAI embedder unavailable (%s); using hashed embeddings." % exc)
             return HashEmbedder()

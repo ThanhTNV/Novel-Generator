@@ -254,7 +254,13 @@ class ZeroMemEngine(object):
             if chapter is not None:
                 ordinal = NARRATIVE_ORDINAL_BASE + chapter
             else:
-                ordinal = self._next_ordinal(kind)
+                # Re-ingesting a source must not move it. Allocating a fresh
+                # ordinal on every pass reshuffled the world bible's internal
+                # order and walked reference ordinals upward until they
+                # collided with the narrative band.
+                ordinal = self._existing_ordinal(source)
+                if ordinal is None:
+                    ordinal = self._next_ordinal(kind)
         self.store.replace_source(
             name=source, segments=segments, mentions_per_segment=mentions,
             kind=kind, chapter=chapter, ordinal=ordinal, timestamp=time.time(),
@@ -311,6 +317,12 @@ class ZeroMemEngine(object):
                     known.add(m.key)
             relations[i] = res.relations
         return relations
+
+    def _existing_ordinal(self, source: str) -> Optional[int]:
+        for s in self.store.sources():
+            if s["name"] == source:
+                return s["ordinal"]
+        return None
 
     def _next_ordinal(self, kind: str) -> int:
         # Reference material sorts before narrative so chapters keep natural order.

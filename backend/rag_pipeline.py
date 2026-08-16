@@ -134,9 +134,13 @@ def ingest_directory(
 ) -> int:
     engine = get_engine()
     count = engine.ingest_directory(str(directory))
-    # Context files define the cast; refresh the gazetteer and re-extract so
-    # documents ingested in the same call see the full entity list.
+    # Context files define the cast, and the files ingested earliest in this
+    # call were extracted against a gazetteer that did not yet contain names
+    # declared by the later ones. Rebuild it, then run a second pass so every
+    # document sees the full entity list. The second pass costs no API tokens:
+    # both the SLM extraction and the embeddings are cached by content hash.
     engine.refresh_gazetteer()
+    engine.ingest_directory(str(directory))
     return count
 
 

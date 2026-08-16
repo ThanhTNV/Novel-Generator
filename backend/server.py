@@ -3,6 +3,7 @@ FastAPI server: REST API + SSE streaming for the Novel Generator.
 """
 
 import json
+import re
 from pathlib import Path
 from typing import List, Optional
 
@@ -279,13 +280,24 @@ async def memory_sources():
 # Chapter management
 # ---------------------------------------------------------------------------
 
+# Titles reach us as free text and are pasted straight into a filename, so a
+# separator or a dot-segment in one would write outside chapters_dir. Keep
+# letters (any script — titles here are Vietnamese), digits, and dashes.
+_SLUG_STRIP_RE = re.compile(r"[^\w\-]+", re.UNICODE)
+
+
+def _slugify(title: str, limit: int = 40) -> str:
+    slug = _SLUG_STRIP_RE.sub("-", title.lower())
+    slug = re.sub(r"-{2,}", "-", slug).strip("-")
+    return slug[:limit].strip("-") or "untitled"
+
+
 @app.post("/api/chapters/save")
 async def save_chapter(req: SaveChapterRequest):
     chapters_dir = Path(settings.chapters_dir)
     chapters_dir.mkdir(parents=True, exist_ok=True)
 
-    title_slug = req.title.replace(" ", "-").lower()[:40] if req.title else "untitled"
-    filename = f"chapter-{req.chapter_number:03d}-{title_slug}.md"
+    filename = f"chapter-{req.chapter_number:03d}-{_slugify(req.title)}.md"
     filepath = chapters_dir / filename
 
     header = f"# Chapter {req.chapter_number}"
@@ -321,10 +333,27 @@ async def list_chapters():
     return {"chapters": chapters}
 
 
+def _resolve_chapter(filename: str) -> Path:
+    """
+    Resolve a chapter filename inside chapters_dir, refusing to escape it.
+
+    Without this, ``GET /api/chapters/..%5C..%5Csecrets.env`` read arbitrary
+    files: Starlette percent-decodes the path parameter, and on Windows
+    ``Path`` treats the decoded backslash as a separator, so the join walked
+    straight out of the directory. The server binds 0.0.0.0 by default, which
+    makes that reachable from the network.
+    """
+    base = Path(settings.chapters_dir).resolve()
+    candidate = (base / filename).resolve()
+    if candidate != base and base not in candidate.parents:
+        raise HTTPException(400, "Invalid chapter filename")
+    return candidate
+
+
 @app.get("/api/chapters/{filename}")
 async def get_chapter(filename: str):
-    filepath = Path(settings.chapters_dir) / filename
-    if not filepath.exists():
+    filepath = _resolve_chapter(filename)
+    if not filepath.is_file():
         raise HTTPException(404, "Chapter not found")
     return {"filename": filename, "content": filepath.read_text(encoding="utf-8")}
 

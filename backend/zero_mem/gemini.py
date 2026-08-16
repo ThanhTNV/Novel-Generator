@@ -3,9 +3,9 @@ Gemini SLM extractor (Google AI Studio) for Zero-Mem.
 
 Adds what the token-free gazetteer/pattern path cannot infer: relation triples
 ``(subject) -[RELATION]-> (object)`` and typed entities for names the context
-files haven't declared yet. Default model is ``gemini-2.5-flash-lite`` — the
-cheapest structured-output model on the API, with thinking off by default, so
-extraction spends almost nothing.
+files haven't declared yet. Default model is ``gemini-3.1-flash-lite`` — the
+cheapest structured-output model new API keys can call, with thinking held at
+LOW, so extraction spends almost nothing.
 
 Design constraints (learned from the Bun MCP implementation of the same idea):
 

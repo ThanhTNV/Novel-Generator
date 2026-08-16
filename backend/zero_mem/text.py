@@ -58,14 +58,22 @@ def tokenize(text: str, fold_accents: bool = True) -> List[str]:
 
 
 def content_tokens(text: str) -> List[str]:
-    """Tokens carrying meaning: tokenised minus stopwords."""
+    """
+    Tokens carrying meaning: tokenised minus stopwords.
+
+    The folded form is tested against FOLDED_STOPWORDS, not STOPWORDS. Readers
+    routinely type Vietnamese without diacritics ("Van Tam co nguoi khong"),
+    and 'co'/'khong'/'nguoi' only appear in the stoplist in their accented
+    spelling — matching the raw set here let every function word through on
+    exactly the queries that need the most help.
+    """
     out = []
     for raw in _WORD_RE.finditer(text):
         low = raw.group(0).lower()
         if low in STOPWORDS:
             continue
         folded = _strip_accents(low)
-        if folded in STOPWORDS:
+        if folded in FOLDED_STOPWORDS:
             continue
         if len(folded) > 1 or folded.isdigit():
             out.append(folded)
@@ -183,7 +191,10 @@ def hash_embed(text: str, dim: int = EMBED_DIM) -> List[float]:
         vec[idx] += sign * weight
 
     for w in words:
-        stop = w in STOPWORDS
+        # tokenize() already folded accents, so this must test the folded set:
+        # against raw STOPWORDS every Vietnamese function word ('và' -> 'va')
+        # missed and was scored at full weight with character trigrams on top.
+        stop = w in FOLDED_STOPWORDS
         feed("w:" + w, 0.2 if stop else 1.0)
         if not stop:
             padded = "^" + w + "$"
