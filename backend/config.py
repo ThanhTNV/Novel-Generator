@@ -26,7 +26,15 @@ class Settings(BaseSettings):
     embedding_dims: int = 768
 
     # Zero-Mem substrate (SQLite). Replaces the old ChromaDB vectorstore.
+    # Per-novel stores live at novels/<slug>/memory/zero_mem.db; this path is
+    # only the pre-multi-novel location, read once to seed the default
+    # workspace on upgrade.
     zero_mem_db: str = str(ROOT_DIR / "data" / "zero_mem.db")
+
+    # Novel workspaces. Each holds its own context, chapters, rules, skills
+    # and memory store, so retrieval for one book can never reach another.
+    novels_dir: str = str(ROOT_DIR / "novels")
+    default_novel: str = "default"
 
     # Optional Gemini SLM extractor for Zero-Mem: adds relation triples and
     # unlisted entities on top of the token-free gazetteer/pattern NER.

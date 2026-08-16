@@ -10,8 +10,9 @@ Generate, revise, and finalize novel chapters using Claude, OpenAI, Groq, or loc
 - **No local ML** — embeddings (`gemini-embedding-001`) and entity/relation extraction (`gemini-3.1-flash-lite`) both run in the cloud over plain HTTP. Set one `GEMINI_API_KEY` and the whole memory layer works; without it the engine uses a built-in hash function and still retrieves well via BM25 + the entity graph. Nothing is ever downloaded.
 - **Zero-Mem memory** — replaces the old ChromaDB RAG pipeline, which measurably lost context on this Vietnamese corpus: its sentence splitter required `[A-Z]` after punctuation (never matches Đ/Ư/Ổ...), collapsing the whole character bible into two ~400-word blobs; revised chapters left stale chunks behind forever; and every generation fired a hard-coded English plot query. Zero-Mem stores paragraphs verbatim with heading provenance, supersedes on re-ingest, grounds queries in an entity graph (accent-tolerant: "Van Tam" finds "Văn Tâm"), and returns contiguous passages in narrative order.
 - **Multi-provider LLM** — Claude, OpenAI, Groq, Ollama with streaming support.
-- **Skills & rules** — modular markdown files that shape every generation.
-- **Web editor** — generate, preview, revise, and finalize chapters in the browser.
+- **One folder per novel** — each book keeps its own world bible, chapters and memory store, so writing chapter 12 of one can never retrieve a character from another. Switch between them in the sidebar.
+- **Skills & rules** — modular markdown files that shape every generation, with per-novel overrides when one book needs a different tone.
+- **Web editor** — compose, preview, revise and finalize chapters in the browser, in light or dark.
 - **Feedback loop** — edit drafts, request revisions, then save and auto-index.
 - **Docker-ready** — single command to build and run with persistent volumes.
 
@@ -20,7 +21,8 @@ Generate, revise, and finalize novel chapters using Claude, OpenAI, Groq, or loc
 ```
 backend/
   config.py          Settings from environment variables
-  rag_pipeline.py    Zero-Mem facade (legacy API kept for compatibility)
+  novels.py          Per-novel workspaces: paths, registry, first-run seeding
+  rag_pipeline.py    Zero-Mem facade — one engine per novel
   zero_mem/          memory engine: segmentation, entity graph, PPR,
                      BM25 + dense retrieval, SQLite trace store
   api_client.py      Unified LLM client (Claude / OpenAI / Groq / Ollama)
@@ -29,12 +31,16 @@ backend/
 frontend/
   templates/         HTML
   static/            CSS + JS
-skills/              Step-by-step generation workflows
-rules/               Always-on constraints (tone, style, genre)
+skills/              Project-default generation workflows
+rules/               Project-default constraints (tone, style, genre)
 prompts/             System and chapter prompt templates
-context/             Novel world files (characters, locations, plot)
-chapters/            Finalized chapter output
-data/zero_mem.db     Zero-Mem trace store (SQLite)
+
+novels/<id>/         one self-contained novel
+  novel.json         title, description, created_at
+  context/           world bible — the entity gazetteer is built from this
+  chapters/          finalized chapters
+  rules/ skills/     optional per-novel overrides
+  memory/            that novel's own Zero-Mem store (SQLite)
 ```
 
 ## Quick start
@@ -51,7 +57,9 @@ cp .env.example .env
 python main.py
 ```
 
-Open **http://localhost:8000**, go to the **Vector DB** tab, click **Ingest Context Directory**, then start generating chapters.
+Open **http://localhost:8000**. A default novel is created on first run, seeded from any existing `context/` and `chapters/`
+(copied, not moved). Open the **World** tab to write its bible and index it, then **Compose** to write a chapter.
+Use the switcher at the top of the sidebar — or `⌘/Ctrl + K` — to add another novel.
 
 ## Docker
 

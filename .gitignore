@@ -29,3 +29,8 @@ Thumbs.db
 data/*.db
 data/*.db-shm
 data/*.db-wal
+
+# Novel workspaces: manuscripts, world bibles and per-novel memory stores.
+# These are the author's work, not the project's.
+novels/*
+!novels/.gitkeep

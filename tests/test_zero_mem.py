@@ -252,17 +252,24 @@ class TestFacade:
         assert len(units) >= 8
         assert all(isinstance(u, str) for u in units)
 
-    def test_retrieve_hit_shape(self, engine, monkeypatch):
+    @staticmethod
+    def _inject(monkeypatch, engine, tmp_path):
+        """Bind an engine to a novel slug without touching the novels dir."""
+        from backend import novels
         import backend.rag_pipeline as rp
-        monkeypatch.setattr(rp, "_engine", engine)
-        hits = rp.retrieve("Văn Tâm", top_k=3)
+        workspace = novels.Novel("fixture", tmp_path)
+        monkeypatch.setitem(rp._engines, workspace.slug, engine)
+        return rp, workspace
+
+    def test_retrieve_hit_shape(self, engine, monkeypatch, tmp_path):
+        rp, workspace = self._inject(monkeypatch, engine, tmp_path)
+        hits = rp.retrieve("Văn Tâm", top_k=3, novel=workspace)
         assert hits
         h = hits[0]
         assert set(("text", "metadata", "distance")) <= set(h)
         assert "source" in h["metadata"]
 
-    def test_stats_shape(self, engine, monkeypatch):
-        import backend.rag_pipeline as rp
-        monkeypatch.setattr(rp, "_engine", engine)
-        stats = rp.get_collection_stats()
+    def test_stats_shape(self, engine, monkeypatch, tmp_path):
+        rp, workspace = self._inject(monkeypatch, engine, tmp_path)
+        stats = rp.get_collection_stats(novel=workspace)
         assert stats["count"] == stats["segments"] > 0

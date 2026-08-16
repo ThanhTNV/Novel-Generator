@@ -14,15 +14,26 @@ from backend.api_client import LLMClient
 from backend.rag_pipeline import get_engine
 
 
-def _load_markdown_dir(dirpath: Union[str, Path]) -> str:
-    """Concatenate all .md files in a directory into a single string."""
-    dirpath = Path(dirpath)
-    if not dirpath.exists():
-        return ""
-    parts = []
-    for f in sorted(dirpath.glob("*.md")):
-        parts.append(f.read_text(encoding="utf-8"))
-    return "\n\n---\n\n".join(parts)
+def _collect_markdown(*dirs: Optional[Union[str, Path]]) -> str:
+    """
+    Concatenate .md files across directories, later ones winning by filename.
+
+    "Write in third person past tense" is usually a house style, so rules and
+    skills keep project-level defaults. A novel that needs a different `tone.md`
+    drops its own into `novels/<slug>/rules/`, and it replaces the shared one
+    rather than being appended alongside it — two contradictory tone rules in
+    the same system prompt is worse than either alone.
+    """
+    by_name: Dict[str, str] = {}
+    for dirpath in dirs:
+        if not dirpath:
+            continue
+        directory = Path(dirpath)
+        if not directory.is_dir():
+            continue
+        for f in sorted(directory.glob("*.md")):
+            by_name[f.stem] = f.read_text(encoding="utf-8")
+    return "\n\n---\n\n".join(by_name[k] for k in sorted(by_name))
 
 
 def _load_file(filepath: Union[str, Path]) -> str:
@@ -32,12 +43,16 @@ def _load_file(filepath: Union[str, Path]) -> str:
     return ""
 
 
-def load_rules() -> str:
-    return _load_markdown_dir(settings.rules_dir)
+def load_rules(novel=None) -> str:
+    return _collect_markdown(
+        settings.rules_dir, novel.rules_dir if novel is not None else None
+    )
 
 
-def load_skills() -> str:
-    return _load_markdown_dir(settings.skills_dir)
+def load_skills(novel=None) -> str:
+    return _collect_markdown(
+        settings.skills_dir, novel.skills_dir if novel is not None else None
+    )
 
 
 def load_base_prompt() -> str:
@@ -88,13 +103,17 @@ class NovelAgent:
         self,
         provider: Optional[str] = None,
         model: Optional[str] = None,
+        novel=None,
     ):
         self.llm = LLMClient(provider=provider, model=model)
+        # Every retrieval this agent performs is scoped to this novel's engine.
+        # There is no cross-novel path: a different novel is a different store.
+        self.novel = novel
 
     def build_system_prompt(self) -> str:
         base = load_base_prompt()
-        rules = load_rules()
-        skills = load_skills()
+        rules = load_rules(self.novel)
+        skills = load_skills(self.novel)
 
         sections = [base]
         if rules:
@@ -145,7 +164,7 @@ class NovelAgent:
         English "unresolved conflict tension mystery" query at this Vietnamese
         corpus on every call.)
         """
-        engine = get_engine()
+        engine = get_engine(self.novel)
         parts = [query]
         if characters:
             parts.append(" ".join(characters))
@@ -244,7 +263,7 @@ class NovelAgent:
         top_k: Optional[int],
     ) -> tuple:
         """Shared retrieval + prompt assembly for chat / chat_stream."""
-        engine = get_engine()
+        engine = get_engine(self.novel)
 
         # Recent conversation turns often hold the referent of "cậu ấy/him/it";
         # folding them into the retrieval query keeps follow-ups grounded.

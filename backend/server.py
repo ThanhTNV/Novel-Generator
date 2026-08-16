@@ -1,5 +1,11 @@
 """
 FastAPI server: REST API + SSE streaming for the Novel Generator.
+
+Every story-bearing route is scoped to one novel. The scope arrives as a
+``novel`` field (POST bodies) or query parameter (GET/DELETE); omitting it
+means the default workspace, which is what keeps pre-multi-novel URLs working.
+There is no ambient "current novel" on the server — two browser tabs can work
+on two books at once without one silently reassigning the other's scope.
 """
 
 import json
@@ -7,26 +13,27 @@ import re
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from backend.config import settings, ROOT_DIR
+from backend import novels
 from backend.agent import NovelAgent
+from backend.config import ROOT_DIR, settings
 from backend.rag_pipeline import (
-    ingest_text,
-    ingest_file,
-    ingest_directory,
-    retrieve,
-    get_collection_stats,
     clear_collection,
+    get_collection_stats,
     get_engine,
+    ingest_directory,
+    ingest_file,
+    ingest_text,
+    release_engine,
+    retrieve,
 )
 
-
-app = FastAPI(title="Novel Generator", version="1.0.0")
+app = FastAPI(title="Novel Generator", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -43,10 +50,54 @@ if STATIC_DIR.exists():
 
 
 # ---------------------------------------------------------------------------
-# Request / Response models
+# Novel scoping
 # ---------------------------------------------------------------------------
 
-class GenerateRequest(BaseModel):
+def _novel(slug: Optional[str]) -> novels.Novel:
+    """Resolve a novel id to its workspace, or fail with a useful status."""
+    try:
+        return novels.resolve_or_default(slug, logger=print)
+    except novels.NovelNotFound:
+        raise HTTPException(404, "No novel with id '%s'." % slug)
+    except novels.InvalidNovelName as exc:
+        raise HTTPException(400, str(exc))
+
+
+def _safe_child(directory: Path, filename: str, what: str) -> Path:
+    """
+    Resolve ``filename`` inside ``directory``, refusing to escape it.
+
+    Starlette percent-decodes path parameters, and on Windows ``Path`` treats a
+    decoded backslash as a separator, so `..%5C..%5Cx` walks out of the
+    directory unless the result is checked for containment.
+    """
+    base = directory.resolve()
+    candidate = (base / filename).resolve()
+    if candidate != base and base not in candidate.parents:
+        raise HTTPException(400, "Invalid %s name." % what)
+    return candidate
+
+
+# Titles and filenames reach us as free text and are pasted into paths, so a
+# separator or dot-segment in one would write outside the workspace.
+_SLUG_STRIP_RE = re.compile(r"[^\w\-]+", re.UNICODE)
+
+
+def _slugify(title: str, limit: int = 40) -> str:
+    slug = _SLUG_STRIP_RE.sub("-", title.lower())
+    slug = re.sub(r"-{2,}", "-", slug).strip("-")
+    return slug[:limit].strip("-") or "untitled"
+
+
+# ---------------------------------------------------------------------------
+# Request models
+# ---------------------------------------------------------------------------
+
+class NovelScoped(BaseModel):
+    novel: Optional[str] = None
+
+
+class GenerateRequest(NovelScoped):
     chapter_instructions: str
     story_summary: str = ""
     characters: List[str] = Field(default_factory=list)
@@ -61,7 +112,7 @@ class GenerateRequest(BaseModel):
     stream: bool = False
 
 
-class ReviseRequest(BaseModel):
+class ReviseRequest(NovelScoped):
     draft: str
     feedback: str
     temperature: float = 0.5
@@ -71,7 +122,7 @@ class ReviseRequest(BaseModel):
     stream: bool = False
 
 
-class IngestTextRequest(BaseModel):
+class IngestTextRequest(NovelScoped):
     text: str
     source: str = "manual"
     chapter: str = ""
@@ -79,19 +130,19 @@ class IngestTextRequest(BaseModel):
     locations: List[str] = Field(default_factory=list)
 
 
-class IngestFileRequest(BaseModel):
+class IngestFileRequest(NovelScoped):
     filepath: str
     chapter: str = ""
     characters: List[str] = Field(default_factory=list)
     locations: List[str] = Field(default_factory=list)
 
 
-class SearchRequest(BaseModel):
+class SearchRequest(NovelScoped):
     query: str
     top_k: int = 8
 
 
-class ChatRequest(BaseModel):
+class ChatRequest(NovelScoped):
     message: str
     history: List[dict] = Field(default_factory=list)
     top_k: int = 5
@@ -100,14 +151,28 @@ class ChatRequest(BaseModel):
     stream: bool = True
 
 
-class SaveChapterRequest(BaseModel):
+class SaveChapterRequest(NovelScoped):
     chapter_number: int
     title: str = ""
     content: str
 
 
+class CreateNovelRequest(BaseModel):
+    title: str
+    description: str = ""
+
+
+class UpdateNovelRequest(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+
+
+class ContextFileRequest(NovelScoped):
+    content: str
+
+
 # ---------------------------------------------------------------------------
-# Frontend routes
+# Frontend
 # ---------------------------------------------------------------------------
 
 @app.get("/", response_class=HTMLResponse)
@@ -119,30 +184,78 @@ async def index():
 
 
 # ---------------------------------------------------------------------------
-# Generation endpoints
+# Novels
 # ---------------------------------------------------------------------------
+
+@app.get("/api/novels")
+async def list_novels():
+    novels.ensure_default(logger=print)
+    return {"novels": [n.to_dict() for n in novels.list_novels()],
+            "default": settings.default_novel}
+
+
+@app.post("/api/novels")
+async def create_novel(req: CreateNovelRequest):
+    try:
+        novel = novels.create(req.title, req.description)
+    except novels.InvalidNovelName as exc:
+        raise HTTPException(400, str(exc))
+    return novel.to_dict()
+
+
+@app.patch("/api/novels/{slug}")
+async def update_novel(slug: str, req: UpdateNovelRequest):
+    novel = _novel(slug)
+    novel.update(title=req.title, description=req.description)
+    return novel.to_dict()
+
+
+@app.delete("/api/novels/{slug}")
+async def delete_novel(slug: str):
+    if slug == settings.default_novel:
+        raise HTTPException(400, "The default workspace cannot be deleted.")
+    novel = _novel(slug)
+    # Close the SQLite handle first: on Windows the directory cannot be removed
+    # while the memory store is still open.
+    release_engine(novel.slug)
+    try:
+        novels.delete(novel.slug)
+    except OSError as exc:
+        raise HTTPException(500, "Could not delete '%s': %s" % (slug, exc))
+    return {"status": "deleted", "slug": slug}
+
+
+# ---------------------------------------------------------------------------
+# Generation
+# ---------------------------------------------------------------------------
+
+def _sse(payload: dict) -> str:
+    return "data: %s\n\n" % json.dumps(payload)
+
+
+def _guarded_stream(source):
+    """
+    Wrap a token stream so a mid-stream failure reaches the client.
+
+    An exception inside a StreamingResponse otherwise just drops the
+    connection, and the UI shows a half-written chapter with no explanation.
+    """
+    async def gen():
+        try:
+            async for token in source:
+                yield _sse({"token": token})
+        except Exception as exc:
+            yield _sse({"error": str(exc)})
+        yield "data: [DONE]\n\n"
+    return gen()
+
 
 @app.post("/api/generate")
 async def generate_chapter(req: GenerateRequest):
-    agent = NovelAgent(provider=req.provider, model=req.model)
+    novel = _novel(req.novel)
+    agent = NovelAgent(provider=req.provider, model=req.model, novel=novel)
 
-    if req.stream:
-        async def event_stream():
-            async for token in agent.generate_chapter_stream(
-                chapter_instructions=req.chapter_instructions,
-                story_summary=req.story_summary,
-                characters=req.characters,
-                locations=req.locations,
-                target_words=req.target_words,
-                temperature=req.temperature,
-                max_tokens=req.max_tokens,
-            ):
-                yield f"data: {json.dumps({'token': token})}\n\n"
-            yield "data: [DONE]\n\n"
-
-        return StreamingResponse(event_stream(), media_type="text/event-stream")
-
-    text = await agent.generate_chapter(
+    kwargs = dict(
         chapter_instructions=req.chapter_instructions,
         story_summary=req.story_summary,
         characters=req.characters,
@@ -151,215 +264,254 @@ async def generate_chapter(req: GenerateRequest):
         temperature=req.temperature,
         max_tokens=req.max_tokens,
     )
-    return {"content": text}
+
+    if req.stream:
+        return StreamingResponse(
+            _guarded_stream(agent.generate_chapter_stream(**kwargs)),
+            media_type="text/event-stream",
+        )
+    return {"content": await agent.generate_chapter(**kwargs), "novel": novel.slug}
 
 
 @app.post("/api/revise")
 async def revise_chapter(req: ReviseRequest):
-    agent = NovelAgent(provider=req.provider, model=req.model)
+    novel = _novel(req.novel)
+    agent = NovelAgent(provider=req.provider, model=req.model, novel=novel)
 
-    if req.stream:
-        async def event_stream():
-            async for token in agent.revise_chapter_stream(
-                draft=req.draft,
-                feedback=req.feedback,
-                temperature=req.temperature,
-                max_tokens=req.max_tokens,
-            ):
-                yield f"data: {json.dumps({'token': token})}\n\n"
-            yield "data: [DONE]\n\n"
-
-        return StreamingResponse(event_stream(), media_type="text/event-stream")
-
-    text = await agent.revise_chapter(
+    kwargs = dict(
         draft=req.draft,
         feedback=req.feedback,
         temperature=req.temperature,
         max_tokens=req.max_tokens,
     )
-    return {"content": text}
+
+    if req.stream:
+        return StreamingResponse(
+            _guarded_stream(agent.revise_chapter_stream(**kwargs)),
+            media_type="text/event-stream",
+        )
+    return {"content": await agent.revise_chapter(**kwargs), "novel": novel.slug}
 
 
 # ---------------------------------------------------------------------------
-# Chat (RAG Q&A)
+# Chat
 # ---------------------------------------------------------------------------
 
 @app.post("/api/chat")
 async def chat_endpoint(req: ChatRequest):
-    agent = NovelAgent(provider=req.provider, model=req.model)
+    novel = _novel(req.novel)
+    agent = NovelAgent(provider=req.provider, model=req.model, novel=novel)
 
     if req.stream:
         async def event_stream():
-            stream, sources = await agent.chat_stream(
-                message=req.message,
-                history=req.history,
-                top_k=req.top_k,
-            )
-            yield f"data: {json.dumps({'sources': sources})}\n\n"
-            async for token in stream:
-                yield f"data: {json.dumps({'token': token})}\n\n"
+            try:
+                stream, sources = await agent.chat_stream(
+                    message=req.message, history=req.history, top_k=req.top_k,
+                )
+                yield _sse({"sources": sources})
+                async for token in stream:
+                    yield _sse({"token": token})
+            except Exception as exc:
+                yield _sse({"error": str(exc)})
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 
-    result = await agent.chat(
-        message=req.message,
-        history=req.history,
-        top_k=req.top_k,
-    )
+    result = await agent.chat(message=req.message, history=req.history, top_k=req.top_k)
+    result["novel"] = novel.slug
     return result
 
 
 # ---------------------------------------------------------------------------
-# RAG / VectorDB endpoints
+# Memory (ingest / search / stats)
 # ---------------------------------------------------------------------------
 
 @app.post("/api/ingest/text")
 async def ingest_text_endpoint(req: IngestTextRequest):
+    novel = _novel(req.novel)
     count = ingest_text(
-        text=req.text,
-        source=req.source,
-        chapter=req.chapter,
-        characters=req.characters,
-        locations=req.locations,
+        text=req.text, source=req.source, chapter=req.chapter,
+        characters=req.characters, locations=req.locations, novel=novel,
     )
-    return {"chunks_stored": count}
+    return {"chunks_stored": count, "novel": novel.slug}
 
 
 @app.post("/api/ingest/file")
 async def ingest_file_endpoint(req: IngestFileRequest):
+    novel = _novel(req.novel)
     path = Path(req.filepath)
     if not path.exists():
-        raise HTTPException(404, f"File not found: {req.filepath}")
+        raise HTTPException(404, "File not found: %s" % req.filepath)
     count = ingest_file(
-        filepath=path,
-        chapter=req.chapter,
-        characters=req.characters,
-        locations=req.locations,
+        filepath=path, chapter=req.chapter, characters=req.characters,
+        locations=req.locations, novel=novel,
     )
-    return {"chunks_stored": count}
+    return {"chunks_stored": count, "novel": novel.slug}
 
 
 @app.post("/api/ingest/context")
-async def ingest_context_directory():
-    """Ingest all files from the context/ directory."""
-    count = ingest_directory(settings.context_dir)
-    return {"chunks_stored": count}
+async def ingest_context_directory(req: Optional[NovelScoped] = None):
+    """Ingest every .md file from this novel's own context directory."""
+    novel = _novel(req.novel if req else None)
+    count = ingest_directory(str(novel.context_dir), novel=novel)
+    return {"chunks_stored": count, "novel": novel.slug}
 
 
 @app.post("/api/search")
-async def search_vectordb(req: SearchRequest):
-    hits = retrieve(query=req.query, top_k=req.top_k)
-    return {"results": hits}
+async def search_memory(req: SearchRequest):
+    novel = _novel(req.novel)
+    return {"results": retrieve(query=req.query, top_k=req.top_k, novel=novel),
+            "novel": novel.slug}
 
 
 @app.get("/api/vectordb/stats")
-async def vectordb_stats():
-    return get_collection_stats()
+async def vectordb_stats(novel: Optional[str] = Query(None)):
+    workspace = _novel(novel)
+    stats = get_collection_stats(novel=workspace)
+    stats["novel"] = workspace.slug
+    return stats
 
 
 @app.delete("/api/vectordb/clear")
-async def vectordb_clear():
-    clear_collection()
-    return {"status": "cleared"}
+async def vectordb_clear(novel: Optional[str] = Query(None)):
+    workspace = _novel(novel)
+    clear_collection(novel=workspace)
+    return {"status": "cleared", "novel": workspace.slug}
 
 
 @app.get("/api/memory/entity/{name}")
-async def memory_entity(name: str):
-    """What the story memory knows about one character/place/item."""
-    return get_engine().entity_profile(name)
+async def memory_entity(name: str, novel: Optional[str] = Query(None)):
+    """What this novel's memory knows about one character/place/item."""
+    return get_engine(_novel(novel)).entity_profile(name)
 
 
 @app.get("/api/memory/sources")
-async def memory_sources():
+async def memory_sources(novel: Optional[str] = Query(None)):
     """Every ingested document with segment counts, reference vs chapter."""
-    return {"sources": get_engine().store.sources()}
+    return {"sources": get_engine(_novel(novel)).store.sources()}
 
 
 # ---------------------------------------------------------------------------
-# Chapter management
+# Context files — the world bible, per novel
 # ---------------------------------------------------------------------------
 
-# Titles reach us as free text and are pasted straight into a filename, so a
-# separator or a dot-segment in one would write outside chapters_dir. Keep
-# letters (any script — titles here are Vietnamese), digits, and dashes.
-_SLUG_STRIP_RE = re.compile(r"[^\w\-]+", re.UNICODE)
+@app.get("/api/context")
+async def list_context_files(novel: Optional[str] = Query(None)):
+    workspace = _novel(novel)
+    files = []
+    for f in sorted(workspace.context_dir.glob("*.md")):
+        text = f.read_text(encoding="utf-8")
+        files.append({"filename": f.name, "size": len(text),
+                      "preview": text.strip()[:160]})
+    return {"files": files, "novel": workspace.slug}
 
 
-def _slugify(title: str, limit: int = 40) -> str:
-    slug = _SLUG_STRIP_RE.sub("-", title.lower())
-    slug = re.sub(r"-{2,}", "-", slug).strip("-")
-    return slug[:limit].strip("-") or "untitled"
+@app.get("/api/context/{filename}")
+async def read_context_file(filename: str, novel: Optional[str] = Query(None)):
+    workspace = _novel(novel)
+    path = _safe_child(workspace.context_dir, filename, "context file")
+    if not path.is_file():
+        raise HTTPException(404, "Context file not found.")
+    return {"filename": path.name, "content": path.read_text(encoding="utf-8")}
 
+
+@app.put("/api/context/{filename}")
+async def write_context_file(filename: str, req: ContextFileRequest):
+    workspace = _novel(req.novel)
+    if not filename.lower().endswith(".md"):
+        filename += ".md"
+    path = _safe_child(workspace.context_dir, filename, "context file")
+    workspace.context_dir.mkdir(parents=True, exist_ok=True)
+    path.write_text(req.content, encoding="utf-8")
+    # Re-ingest just this file so the change is retrievable immediately, and
+    # refresh the gazetteer in case the edit introduced a new character.
+    engine = get_engine(workspace)
+    engine.refresh_gazetteer()
+    count = engine.ingest_file(str(path))
+    return {"filename": path.name, "segments": count, "novel": workspace.slug}
+
+
+@app.delete("/api/context/{filename}")
+async def delete_context_file(filename: str, novel: Optional[str] = Query(None)):
+    workspace = _novel(novel)
+    path = _safe_child(workspace.context_dir, filename, "context file")
+    if not path.is_file():
+        raise HTTPException(404, "Context file not found.")
+    path.unlink()
+    engine = get_engine(workspace)
+    engine.delete_source(path.name)
+    engine.refresh_gazetteer()
+    return {"status": "deleted", "filename": path.name}
+
+
+# ---------------------------------------------------------------------------
+# Chapters
+# ---------------------------------------------------------------------------
 
 @app.post("/api/chapters/save")
 async def save_chapter(req: SaveChapterRequest):
-    chapters_dir = Path(settings.chapters_dir)
-    chapters_dir.mkdir(parents=True, exist_ok=True)
+    novel = _novel(req.novel)
+    novel.chapters_dir.mkdir(parents=True, exist_ok=True)
 
-    filename = f"chapter-{req.chapter_number:03d}-{_slugify(req.title)}.md"
-    filepath = chapters_dir / filename
+    filename = "chapter-%03d-%s.md" % (req.chapter_number, _slugify(req.title))
+    filepath = novel.chapters_dir / filename
 
-    header = f"# Chapter {req.chapter_number}"
+    header = "# Chapter %d" % req.chapter_number
     if req.title:
-        header += f": {req.title}"
-
-    filepath.write_text(f"{header}\n\n{req.content}", encoding="utf-8")
+        header += ": %s" % req.title
+    filepath.write_text("%s\n\n%s" % (header, req.content), encoding="utf-8")
 
     count = ingest_text(
-        text=req.content,
-        source=filename,
-        chapter=str(req.chapter_number),
+        text=req.content, source=filename,
+        chapter=str(req.chapter_number), novel=novel,
     )
-
-    return {"filepath": str(filepath), "chunks_ingested": count}
+    return {"filepath": str(filepath), "filename": filename,
+            "chunks_ingested": count, "novel": novel.slug}
 
 
 @app.get("/api/chapters")
-async def list_chapters():
-    chapters_dir = Path(settings.chapters_dir)
-    if not chapters_dir.exists():
-        return {"chapters": []}
+async def list_chapters(novel: Optional[str] = Query(None)):
+    workspace = _novel(novel)
+    if not workspace.chapters_dir.exists():
+        return {"chapters": [], "novel": workspace.slug}
 
     chapters = []
-    for f in sorted(chapters_dir.glob("chapter-*.md")):
+    for f in sorted(workspace.chapters_dir.glob("chapter-*.md")):
         text = f.read_text(encoding="utf-8")
         first_line = text.split("\n")[0] if text else f.stem
+        words = len([w for w in text.split() if w])
         chapters.append({
             "filename": f.name,
             "title": first_line.lstrip("# "),
             "size": len(text),
+            "words": words,
         })
-    return {"chapters": chapters}
-
-
-def _resolve_chapter(filename: str) -> Path:
-    """
-    Resolve a chapter filename inside chapters_dir, refusing to escape it.
-
-    Without this, ``GET /api/chapters/..%5C..%5Csecrets.env`` read arbitrary
-    files: Starlette percent-decodes the path parameter, and on Windows
-    ``Path`` treats the decoded backslash as a separator, so the join walked
-    straight out of the directory. The server binds 0.0.0.0 by default, which
-    makes that reachable from the network.
-    """
-    base = Path(settings.chapters_dir).resolve()
-    candidate = (base / filename).resolve()
-    if candidate != base and base not in candidate.parents:
-        raise HTTPException(400, "Invalid chapter filename")
-    return candidate
+    return {"chapters": chapters, "novel": workspace.slug}
 
 
 @app.get("/api/chapters/{filename}")
-async def get_chapter(filename: str):
-    filepath = _resolve_chapter(filename)
+async def get_chapter(filename: str, novel: Optional[str] = Query(None)):
+    workspace = _novel(novel)
+    filepath = _safe_child(workspace.chapters_dir, filename, "chapter")
     if not filepath.is_file():
         raise HTTPException(404, "Chapter not found")
     return {"filename": filename, "content": filepath.read_text(encoding="utf-8")}
 
 
+@app.delete("/api/chapters/{filename}")
+async def delete_chapter(filename: str, novel: Optional[str] = Query(None)):
+    workspace = _novel(novel)
+    filepath = _safe_child(workspace.chapters_dir, filename, "chapter")
+    if not filepath.is_file():
+        raise HTTPException(404, "Chapter not found")
+    filepath.unlink()
+    # Drop it from memory too, or the deleted chapter stays retrievable.
+    get_engine(workspace).delete_source(filepath.name)
+    return {"status": "deleted", "filename": filepath.name}
+
+
 # ---------------------------------------------------------------------------
-# Config / status
+# Config / rules / skills
 # ---------------------------------------------------------------------------
 
 @app.get("/api/config")
@@ -367,31 +519,47 @@ async def get_config():
     return {
         "default_provider": settings.default_llm_provider,
         "default_model": settings.default_model,
+        "embedding_provider": settings.embedding_provider,
         "embedding_model": settings.embedding_model,
         "target_words": settings.default_target_words,
+        "default_novel": settings.default_novel,
         "has_anthropic_key": bool(settings.anthropic_api_key),
         "has_openai_key": bool(settings.openai_api_key),
         "has_groq_key": bool(settings.groq_api_key),
+        "has_gemini_key": bool(settings.gemini_api_key or settings.google_api_key),
     }
 
 
+def _markdown_entries(project_dir, novel_dir) -> List[dict]:
+    """
+    Project-level files, overridden by same-named files in the novel.
+
+    Mirrors what agent._collect_markdown feeds the model, and reports which
+    scope each entry came from so the UI can show what this novel overrides.
+    """
+    by_name = {}
+    for directory, scope in ((project_dir, "project"), (novel_dir, "novel")):
+        if directory is None:
+            continue
+        path = Path(directory)
+        if not path.is_dir():
+            continue
+        for f in sorted(path.glob("*.md")):
+            by_name[f.stem] = {"name": f.stem,
+                               "content": f.read_text(encoding="utf-8"),
+                               "scope": scope}
+    return [by_name[k] for k in sorted(by_name)]
+
+
 @app.get("/api/rules")
-async def get_rules():
-    rules_dir = Path(settings.rules_dir)
-    if not rules_dir.exists():
-        return {"rules": []}
-    rules = []
-    for f in sorted(rules_dir.glob("*.md")):
-        rules.append({"name": f.stem, "content": f.read_text(encoding="utf-8")})
-    return {"rules": rules}
+async def get_rules(novel: Optional[str] = Query(None)):
+    workspace = _novel(novel)
+    return {"rules": _markdown_entries(settings.rules_dir, workspace.rules_dir),
+            "novel": workspace.slug}
 
 
 @app.get("/api/skills")
-async def get_skills():
-    skills_dir = Path(settings.skills_dir)
-    if not skills_dir.exists():
-        return {"skills": []}
-    skills = []
-    for f in sorted(skills_dir.glob("*.md")):
-        skills.append({"name": f.stem, "content": f.read_text(encoding="utf-8")})
-    return {"skills": skills}
+async def get_skills(novel: Optional[str] = Query(None)):
+    workspace = _novel(novel)
+    return {"skills": _markdown_entries(settings.skills_dir, workspace.skills_dir),
+            "novel": workspace.slug}

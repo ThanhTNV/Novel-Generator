@@ -10,12 +10,11 @@ services:
     environment:
       HOST: "0.0.0.0"
       PORT: "8000"
-      ZERO_MEM_DB: /app/data/memory/zero_mem.db
-      CHAPTERS_DIR: /app/data/chapters
+      # Each novel keeps its own context, chapters and memory store under here,
+      # so this single volume holds the entire library.
+      NOVELS_DIR: /app/novels
     volumes:
-      - memory_data:/app/data/memory
-      - chapters_data:/app/data/chapters
-      - ./context:/app/context:ro
+      - novels_data:/app/novels
       - ./rules:/app/rules:ro
       - ./skills:/app/skills:ro
       - ./prompts:/app/prompts:ro
@@ -47,8 +46,7 @@ services:
       - with-ollama
 
 volumes:
-  memory_data:
-  chapters_data:
+  novels_data:
   ollama_data:
 
 networks:

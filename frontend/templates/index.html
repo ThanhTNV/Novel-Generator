@@ -1,341 +1,408 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Novel Generator</title>
-    <link rel="stylesheet" href="/static/style.css">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Novel Generator</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📖</text></svg>">
 </head>
 <body>
-    <div class="app">
-        <!-- Sidebar -->
-        <aside class="sidebar" id="sidebar">
-            <div class="sidebar-header">
-                <h1 class="logo">Novel<span>Gen</span></h1>
-            </div>
 
-            <nav class="sidebar-nav">
-                <button class="nav-btn active" data-panel="generate">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-                    Generate
-                </button>
-                <button class="nav-btn" data-panel="write">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
-                    Write
-                </button>
-                <button class="nav-btn" data-panel="chapters">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-                    Chapters
-                </button>
-                <button class="nav-btn" data-panel="chat">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                    Chat
-                </button>
-                <button class="nav-btn" data-panel="vectordb">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
-                    Vector DB
-                </button>
-                <button class="nav-btn" data-panel="settings">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
-                    Settings
-                </button>
-            </nav>
+<div class="app" id="app">
 
-            <div class="sidebar-footer">
-                <div class="db-status" id="dbStatus">
-                    <span class="status-dot"></span>
-                    <span class="status-text">Loading...</span>
-                </div>
-            </div>
-        </aside>
+  <!-- ═══════════ Rail ═══════════ -->
+  <aside class="rail" id="rail">
 
-        <!-- Main content -->
-        <main class="main">
-            <!-- Generate Panel -->
-            <section class="panel active" id="panel-generate">
-                <div class="panel-header">
-                    <h2>Generate Chapter</h2>
-                </div>
-
-                <div class="generate-layout">
-                    <!-- Left: Controls -->
-                    <div class="controls-pane">
-                        <div class="form-group">
-                            <label>Chapter Instructions</label>
-                            <textarea id="chapterInstructions" rows="5" placeholder="Describe what should happen in this chapter..."></textarea>
-                        </div>
-
-                        <div class="form-group">
-                            <label>Story Summary (so far)</label>
-                            <textarea id="storySummary" rows="3" placeholder="Brief summary of preceding events..."></textarea>
-                        </div>
-
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label>Characters</label>
-                                <input type="text" id="characters" placeholder="Comma-separated names">
-                            </div>
-                            <div class="form-group">
-                                <label>Locations</label>
-                                <input type="text" id="locations" placeholder="Comma-separated places">
-                            </div>
-                        </div>
-
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label>Target Words</label>
-                                <input type="number" id="targetWords" value="2000" min="200" max="10000" step="100">
-                            </div>
-                            <div class="form-group">
-                                <label>Temperature</label>
-                                <input type="range" id="temperature" min="0" max="1" step="0.05" value="0.7">
-                                <span class="range-value" id="tempValue">0.7</span>
-                            </div>
-                        </div>
-
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label>Provider</label>
-                                <select id="provider">
-                                    <option value="">Default</option>
-                                    <option value="claude">Claude</option>
-                                    <option value="openai">OpenAI</option>
-                                    <option value="groq">Groq</option>
-                                    <option value="ollama">Ollama</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label>Model</label>
-                                <input type="text" id="model" placeholder="Default model">
-                            </div>
-                        </div>
-
-                        <div class="btn-row">
-                            <button class="btn btn-primary" id="btnGenerate">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                                Generate Draft
-                            </button>
-                            <button class="btn btn-secondary" id="btnStream">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
-                                Stream Draft
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Right: Preview -->
-                    <div class="preview-pane">
-                        <div class="preview-header">
-                            <h3>Draft Preview</h3>
-                            <div class="preview-actions">
-                                <span class="word-count" id="wordCount">0 words</span>
-                                <button class="btn btn-sm" id="btnCopyDraft" title="Copy to clipboard">Copy</button>
-                            </div>
-                        </div>
-                        <div class="draft-editor" id="draftEditor" contenteditable="true" data-placeholder="Generated chapter will appear here..."></div>
-
-                        <!-- Feedback -->
-                        <div class="feedback-section" id="feedbackSection" style="display:none;">
-                            <div class="form-group">
-                                <label>Revision Feedback</label>
-                                <textarea id="feedbackText" rows="3" placeholder="What should change? Be specific..."></textarea>
-                            </div>
-                            <div class="btn-row">
-                                <button class="btn btn-primary" id="btnRevise">Revise Draft</button>
-                                <button class="btn btn-secondary" id="btnReviseStream">Stream Revision</button>
-                            </div>
-                        </div>
-
-                        <!-- Finalize -->
-                        <div class="finalize-section" id="finalizeSection" style="display:none;">
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>Chapter Number</label>
-                                    <input type="number" id="chapterNumber" value="1" min="1">
-                                </div>
-                                <div class="form-group">
-                                    <label>Chapter Title</label>
-                                    <input type="text" id="chapterTitle" placeholder="Optional title">
-                                </div>
-                            </div>
-                            <button class="btn btn-success" id="btnFinalize">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
-                                Finalize &amp; Save
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Write Panel -->
-            <section class="panel" id="panel-write">
-                <div class="panel-header">
-                    <h2>Write Chapter</h2>
-                </div>
-
-                <div class="write-layout">
-                    <div class="write-sidebar">
-                        <div class="form-group">
-                            <label>Chapter Number</label>
-                            <input type="number" id="writeChapterNumber" value="1" min="1">
-                        </div>
-                        <div class="form-group">
-                            <label>Chapter Title</label>
-                            <input type="text" id="writeChapterTitle" placeholder="e.g. Lời mời từ bóng tối">
-                        </div>
-                        <div class="write-meta">
-                            <div class="write-meta-item">
-                                <span class="write-meta-label">Words</span>
-                                <span class="write-meta-value" id="writeWordCount">0</span>
-                            </div>
-                            <div class="write-meta-item">
-                                <span class="write-meta-label">Characters</span>
-                                <span class="write-meta-value" id="writeCharCount">0</span>
-                            </div>
-                        </div>
-                        <button class="btn btn-success btn-block" id="btnSaveManualChapter">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                            Save Chapter
-                        </button>
-                    </div>
-                    <div class="write-editor-pane">
-                        <div class="write-editor" id="writeEditor" contenteditable="true" data-placeholder="Start writing your chapter here..."></div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Chapters Panel -->
-            <section class="panel" id="panel-chapters">
-                <div class="panel-header">
-                    <h2>Saved Chapters</h2>
-                    <button class="btn btn-sm" id="btnRefreshChapters">Refresh</button>
-                </div>
-                <div class="chapters-list" id="chaptersList">
-                    <p class="empty-state">No chapters saved yet.</p>
-                </div>
-                <div class="chapter-reader" id="chapterReader" style="display:none;">
-                    <button class="btn btn-sm" id="btnBackToList">&larr; Back to list</button>
-                    <div class="chapter-content" id="chapterContent"></div>
-                </div>
-            </section>
-
-            <!-- Chat Panel -->
-            <section class="panel" id="panel-chat">
-                <div class="chat-container">
-                    <div class="chat-header">
-                        <h2>Story Chat</h2>
-                        <div class="chat-header-actions">
-                            <label class="toggle-label">
-                                <input type="checkbox" id="chatShowSources"> Sources
-                            </label>
-                            <button class="btn btn-sm" id="btnClearChat">Clear</button>
-                        </div>
-                    </div>
-                    <div class="chat-messages" id="chatMessages">
-                        <div class="chat-welcome">
-                            <div class="chat-welcome-icon">
-                                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                            </div>
-                            <p>Ask anything about your story — characters, plot, locations, events. Answers are grounded in your vector database.</p>
-                        </div>
-                    </div>
-                    <div class="chat-input-bar">
-                        <textarea id="chatInput" rows="1" placeholder="Ask about your story..." maxlength="2000"></textarea>
-                        <button class="btn btn-primary chat-send-btn" id="btnChatSend">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-                        </button>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Vector DB Panel -->
-            <section class="panel" id="panel-vectordb">
-                <div class="panel-header">
-                    <h2>Vector Database</h2>
-                </div>
-
-                <div class="vdb-grid">
-                    <div class="vdb-card">
-                        <h3>Status</h3>
-                        <div class="vdb-stat" id="vdbStats">Loading...</div>
-                    </div>
-
-                    <div class="vdb-card">
-                        <h3>Ingest Context Files</h3>
-                        <p>Load all .md files from the <code>context/</code> directory into the vector store.</p>
-                        <button class="btn btn-primary" id="btnIngestContext">Ingest Context Directory</button>
-                    </div>
-
-                    <div class="vdb-card">
-                        <h3>Ingest Custom Text</h3>
-                        <textarea id="ingestText" rows="4" placeholder="Paste text to embed..."></textarea>
-                        <input type="text" id="ingestSource" placeholder="Source label (e.g. backstory)" style="margin-top:0.5rem;">
-                        <button class="btn btn-primary" id="btnIngestText" style="margin-top:0.5rem;">Ingest Text</button>
-                    </div>
-
-                    <div class="vdb-card">
-                        <h3>Search</h3>
-                        <input type="text" id="searchQuery" placeholder="Semantic search query...">
-                        <button class="btn btn-primary" id="btnSearch" style="margin-top:0.5rem;">Search</button>
-                        <div class="search-results" id="searchResults"></div>
-                    </div>
-
-                    <div class="vdb-card danger-zone">
-                        <h3>Danger Zone</h3>
-                        <button class="btn btn-danger" id="btnClearVdb">Clear Vector Store</button>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Settings Panel -->
-            <section class="panel" id="panel-settings">
-                <div class="panel-header">
-                    <h2>Settings</h2>
-                </div>
-                <div class="settings-content">
-                    <div class="settings-card">
-                        <h3>Current Configuration</h3>
-                        <pre id="configDisplay">Loading...</pre>
-                    </div>
-                    <div class="settings-card">
-                        <h3>Active Rules</h3>
-                        <div id="rulesDisplay">Loading...</div>
-                    </div>
-                    <div class="settings-card">
-                        <h3>Active Skills</h3>
-                        <div id="skillsDisplay">Loading...</div>
-                    </div>
-                </div>
-            </section>
-        </main>
+    <div class="rail-top">
+      <button class="brand" id="btnBrand" type="button" aria-label="Novel Generator">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 5.5A2.5 2.5 0 0 1 5.5 3H11v18H5.5A2.5 2.5 0 0 1 3 18.5z"/>
+            <path d="M21 5.5A2.5 2.5 0 0 0 18.5 3H13v18h5.5a2.5 2.5 0 0 0 2.5-2.5z"/>
+          </svg>
+        </span>
+        <span class="brand-text">Novel<em>Gen</em></span>
+      </button>
     </div>
 
-    <!-- Toast notification -->
-    <div class="toast-container" id="toastContainer"></div>
+    <!-- Novel switcher -->
+    <div class="switcher">
+      <button class="switcher-btn" id="btnSwitcher" type="button" aria-haspopup="listbox" aria-expanded="false">
+        <span class="switcher-meta">
+          <span class="switcher-label">Novel</span>
+          <span class="switcher-name" id="currentNovelName">Loading…</span>
+        </span>
+        <svg class="switcher-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
 
-    <!-- Confirmation modal -->
-    <div class="modal-overlay" id="confirmModal" style="display:none;">
-        <div class="modal-card">
-            <div class="modal-header">
-                <h3 id="confirmModalTitle">Confirm</h3>
-            </div>
-            <div class="modal-body" id="confirmModalBody">
-                Are you sure?
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" id="confirmModalCancel">Cancel</button>
-                <button class="btn btn-success" id="confirmModalOk">Save</button>
-            </div>
+      <div class="popover" id="novelPopover" role="listbox" hidden>
+        <div class="popover-head">
+          <span>Your novels</span>
+          <kbd>⌘K</kbd>
         </div>
+        <div class="popover-list" id="novelList"></div>
+        <button class="popover-action" id="btnNewNovel" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          New novel
+        </button>
+      </div>
     </div>
 
-    <!-- Loading overlay -->
-    <div class="loading-overlay" id="loadingOverlay" style="display:none;">
-        <div class="spinner"></div>
-        <p id="loadingText">Generating...</p>
-    </div>
+    <nav class="nav" id="nav" aria-label="Sections">
+      <button class="nav-item is-active" data-panel="compose" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v3m0 12v3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1M3 12h3m12 0h3M5.6 18.4l2.1-2.1m8.6-8.6 2.1-2.1"/><circle cx="12" cy="12" r="3.2"/></svg>
+        <span>Compose</span>
+      </button>
+      <button class="nav-item" data-panel="manuscript" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg>
+        <span>Manuscript</span>
+      </button>
+      <button class="nav-item" data-panel="chapters" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        <span>Chapters</span>
+        <span class="nav-count" id="navChapterCount" hidden></span>
+      </button>
+      <button class="nav-item" data-panel="world" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18z"/></svg>
+        <span>World</span>
+        <span class="nav-count" id="navWorldCount" hidden></span>
+      </button>
+      <button class="nav-item" data-panel="chat" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span>Ask</span>
+      </button>
+      <button class="nav-item" data-panel="memory" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.66 3.58 3 8 3s8-1.34 8-3v-13"/><path d="M20 12c0 1.66-3.58 3-8 3s-8-1.34-8-3"/></svg>
+        <span>Memory</span>
+      </button>
+      <button class="nav-item" data-panel="settings" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span>Settings</span>
+      </button>
+    </nav>
 
-    <script src="/static/app.js"></script>
+    <div class="rail-foot">
+      <div class="memstat" id="memStat" title="Segments in this novel's memory">
+        <span class="dot" id="memDot"></span>
+        <span id="memStatText">—</span>
+      </div>
+      <button class="icon-btn" id="btnTheme" type="button" aria-label="Switch theme" title="Switch theme">
+        <svg class="ico-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2m0 16v2M4.2 4.2l1.4 1.4m12.8 12.8 1.4 1.4M2 12h2m16 0h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/></svg>
+        <svg class="ico-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ═══════════ Workspace ═══════════ -->
+  <div class="workspace">
+
+    <header class="topbar">
+      <button class="icon-btn only-narrow" id="btnRailToggle" type="button" aria-label="Menu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <div class="topbar-title">
+        <h1 id="panelTitle">Compose</h1>
+        <p id="panelHint">Draft a chapter grounded in this novel's memory.</p>
+      </div>
+      <div class="topbar-scope" id="topbarScope" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5.5A2.5 2.5 0 0 1 5.5 3H11v18H5.5A2.5 2.5 0 0 1 3 18.5z"/><path d="M21 5.5A2.5 2.5 0 0 0 18.5 3H13v18h5.5a2.5 2.5 0 0 0 2.5-2.5z"/></svg>
+        <span id="topbarScopeName"></span>
+      </div>
+    </header>
+
+    <main class="stage" id="stage">
+
+      <!-- ── Compose ── -->
+      <section class="panel is-active" id="panel-compose">
+        <div class="split">
+          <div class="col-controls">
+            <div class="field">
+              <label for="chapterInstructions">What happens in this chapter?</label>
+              <textarea id="chapterInstructions" rows="6" placeholder="Văn Tâm mở Đồ Lục lần đầu và nghe thấy một giọng nói…"></textarea>
+            </div>
+
+            <div class="field">
+              <label for="storySummary">Story so far <span class="opt">optional</span></label>
+              <textarea id="storySummary" rows="3" placeholder="Brief summary of preceding events…"></textarea>
+            </div>
+
+            <div class="grid-2">
+              <div class="field">
+                <label for="characters">Characters</label>
+                <input type="text" id="characters" placeholder="Comma-separated">
+              </div>
+              <div class="field">
+                <label for="locations">Locations</label>
+                <input type="text" id="locations" placeholder="Comma-separated">
+              </div>
+            </div>
+
+            <div class="grid-2">
+              <div class="field">
+                <label for="targetWords">Target length</label>
+                <div class="input-suffix">
+                  <input type="number" id="targetWords" value="2000" min="200" max="10000" step="100">
+                  <span>words</span>
+                </div>
+              </div>
+              <div class="field">
+                <label for="temperature">Temperature <b class="slider-val" id="tempValue">0.7</b></label>
+                <input type="range" id="temperature" min="0" max="1" step="0.05" value="0.7">
+              </div>
+            </div>
+
+            <details class="disclosure">
+              <summary>Model override</summary>
+              <div class="grid-2">
+                <div class="field">
+                  <label for="provider">Provider</label>
+                  <select id="provider">
+                    <option value="">Default</option>
+                    <option value="claude">Claude</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="groq">Groq</option>
+                    <option value="ollama">Ollama</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="model">Model</label>
+                  <input type="text" id="model" placeholder="Default model">
+                </div>
+              </div>
+            </details>
+
+            <div class="actions">
+              <button class="btn btn-primary" id="btnStream" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m13 2-9 12h7l-1 8 9-12h-7z"/></svg>
+                Write chapter
+              </button>
+              <button class="btn btn-ghost" id="btnGenerate" type="button" title="Wait for the whole chapter instead of streaming">
+                Generate at once
+              </button>
+            </div>
+            <p class="hint-line">⌘/Ctrl + Enter to write</p>
+          </div>
+
+          <div class="col-preview">
+            <div class="pane-head">
+              <h2>Draft</h2>
+              <div class="pane-tools">
+                <span class="counter" id="wordCount">0 words</span>
+                <button class="chip-btn" id="btnCopyDraft" type="button">Copy</button>
+              </div>
+            </div>
+
+            <div class="prose-editor" id="draftEditor" contenteditable="true" spellcheck="false" data-placeholder="Your chapter appears here as it's written…"></div>
+
+            <div class="pane-foot" id="feedbackSection" hidden>
+              <div class="field">
+                <label for="feedbackText">Revision notes</label>
+                <textarea id="feedbackText" rows="2" placeholder="Make the confrontation slower. Cut the flashback."></textarea>
+              </div>
+              <div class="actions">
+                <button class="btn btn-primary btn-sm" id="btnReviseStream" type="button">Revise</button>
+                <button class="btn btn-ghost btn-sm" id="btnRevise" type="button">Revise at once</button>
+              </div>
+            </div>
+
+            <div class="pane-foot" id="finalizeSection" hidden>
+              <div class="save-row">
+                <div class="field field-tight">
+                  <label for="chapterNumber">Ch.</label>
+                  <input type="number" id="chapterNumber" value="1" min="1">
+                </div>
+                <div class="field">
+                  <label for="chapterTitle">Title</label>
+                  <input type="text" id="chapterTitle" placeholder="Optional">
+                </div>
+                <button class="btn btn-accent" id="btnFinalize" type="button">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m20 6-11 11-5-5"/></svg>
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Manuscript ── -->
+      <section class="panel" id="panel-manuscript">
+        <div class="split split-narrow-left">
+          <div class="col-controls">
+            <div class="grid-2">
+              <div class="field field-tight">
+                <label for="writeChapterNumber">Chapter</label>
+                <input type="number" id="writeChapterNumber" value="1" min="1">
+              </div>
+              <div class="field">
+                <label for="writeChapterTitle">Title</label>
+                <input type="text" id="writeChapterTitle" placeholder="Lời mời từ bóng tối">
+              </div>
+            </div>
+            <div class="statbar">
+              <div class="statbar-cell"><span>Words</span><b id="writeWordCount">0</b></div>
+              <div class="statbar-cell"><span>Characters</span><b id="writeCharCount">0</b></div>
+            </div>
+            <button class="btn btn-accent btn-block" id="btnSaveManualChapter" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+              Save chapter
+            </button>
+            <p class="note">Saving files the chapter under this novel and adds it to its memory, so later chapters can retrieve it.</p>
+          </div>
+          <div class="col-preview">
+            <div class="prose-editor prose-editor-tall" id="writeEditor" contenteditable="true" spellcheck="false" data-placeholder="Start writing…"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Chapters ── -->
+      <section class="panel" id="panel-chapters">
+        <div class="panel-body">
+          <div class="list" id="chaptersList"></div>
+          <article class="reader" id="chapterReader" hidden>
+            <button class="btn btn-ghost btn-sm" id="btnBackToList" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+              All chapters
+            </button>
+            <div class="reader-body" id="chapterContent"></div>
+          </article>
+        </div>
+      </section>
+
+      <!-- ── World ── -->
+      <section class="panel" id="panel-world">
+        <div class="panel-body">
+          <div class="world-layout">
+            <div class="world-list">
+              <div class="pane-head">
+                <h2>World bible</h2>
+                <button class="chip-btn" id="btnNewContext" type="button">+ New file</button>
+              </div>
+              <div class="list list-compact" id="contextList"></div>
+              <button class="btn btn-ghost btn-block btn-sm" id="btnReingest" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7M21 3v6h-6"/></svg>
+                Re-index everything
+              </button>
+            </div>
+            <div class="world-editor">
+              <div class="pane-head">
+                <input class="filename-input" type="text" id="contextFilename" placeholder="characters.md" spellcheck="false">
+                <div class="pane-tools">
+                  <button class="chip-btn danger" id="btnDeleteContext" type="button" hidden>Delete</button>
+                  <button class="btn btn-accent btn-sm" id="btnSaveContext" type="button">Save &amp; index</button>
+                </div>
+              </div>
+              <textarea class="code-editor" id="contextEditor" spellcheck="false" placeholder="## Văn Tâm (Nhân vật chính)&#10;&#10;- **Ngoại hình**: Cao 1m78, tóc đen rối nhẹ.&#10;- **Năng lực**: Sở hữu Đồ Lục.&#10;&#10;Headings name an entity. Bold labels followed by a colon stay attributes."></textarea>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Ask ── -->
+      <section class="panel panel-flush" id="panel-chat">
+        <div class="chat">
+          <div class="chat-log" id="chatMessages"></div>
+          <div class="chat-bar">
+            <div class="chat-input-wrap">
+              <textarea id="chatInput" rows="1" placeholder="Ask about your characters, plot, places…" maxlength="2000"></textarea>
+              <button class="send-btn" id="btnChatSend" type="button" aria-label="Send">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"/></svg>
+              </button>
+            </div>
+            <div class="chat-bar-foot">
+              <label class="switch">
+                <input type="checkbox" id="chatShowSources">
+                <span>Show sources</span>
+              </label>
+              <button class="chip-btn" id="btnClearChat" type="button">Clear</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Memory ── -->
+      <section class="panel" id="panel-memory">
+        <div class="panel-body">
+          <div class="metrics" id="memMetrics"></div>
+
+          <div class="cards">
+            <div class="card card-span">
+              <h3>Search this novel's memory</h3>
+              <p class="card-note">The same structured retrieval the writer uses. Nothing from your other novels can appear here.</p>
+              <div class="search-row">
+                <input type="text" id="searchQuery" placeholder="Đồ Lục là gì?">
+                <button class="btn btn-primary" id="btnSearch" type="button">Search</button>
+              </div>
+              <div class="results" id="searchResults"></div>
+            </div>
+
+            <div class="card">
+              <h3>Add loose text</h3>
+              <p class="card-note">Backstory or notes that don't belong in a file.</p>
+              <textarea id="ingestText" rows="4" placeholder="Paste text…"></textarea>
+              <input type="text" id="ingestSource" placeholder="Label, e.g. backstory">
+              <button class="btn btn-ghost btn-block" id="btnIngestText" type="button">Add to memory</button>
+            </div>
+
+            <div class="card card-danger">
+              <h3>Reset memory</h3>
+              <p class="card-note">Erases everything indexed for <b id="dangerNovelName">this novel</b>. Your context files and chapter files stay on disk — re-index rebuilds from them.</p>
+              <button class="btn btn-danger btn-block" id="btnClearVdb" type="button">Clear this novel's memory</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Settings ── -->
+      <section class="panel" id="panel-settings">
+        <div class="panel-body">
+          <div class="cards">
+            <div class="card">
+              <h3>Configuration</h3>
+              <dl class="kv" id="configDisplay"></dl>
+            </div>
+            <div class="card card-span">
+              <h3>Rules</h3>
+              <p class="card-note">Project defaults apply to every novel. A file of the same name in <code>novels/&lt;id&gt;/rules/</code> replaces it for that novel only.</p>
+              <div class="doclist" id="rulesDisplay"></div>
+            </div>
+            <div class="card card-span">
+              <h3>Skills</h3>
+              <div class="doclist" id="skillsDisplay"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<!-- Toasts -->
+<div class="toasts" id="toastContainer" role="status" aria-live="polite"></div>
+
+<!-- Dialog -->
+<div class="overlay" id="dialog" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialogTitle">
+    <h3 id="dialogTitle">Confirm</h3>
+    <div class="dialog-body" id="dialogBody"></div>
+    <div class="dialog-actions">
+      <button class="btn btn-ghost" id="dialogCancel" type="button">Cancel</button>
+      <button class="btn btn-accent" id="dialogOk" type="button">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Busy -->
+<div class="busy" id="loadingOverlay" hidden>
+  <div class="busy-card">
+    <div class="spinner" aria-hidden="true"></div>
+    <p id="loadingText">Working…</p>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
 </body>
 </html>
