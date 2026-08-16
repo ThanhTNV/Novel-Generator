@@ -686,7 +686,12 @@ class ZeroMemEngine(object):
     def entity_profile(self, name: str, limit: int = 8) -> Dict[str, Any]:
         """Everything the store knows about one character/place/item."""
         mentions = extract_entities(name, self.gazetteer)
-        keys = [m.key for m in mentions] or [name.strip().lower()]
+        # The fallback key must be accent-folded like every key in the graph.
+        # Lowercasing alone left the diacritics on, so looking up a character
+        # the gazetteer does not declare — "Khải", "Tuyên", the short forms
+        # prose actually uses — could never match 'khai'/'tuyen' and always
+        # reported found=False.
+        keys = [m.key for m in mentions] or [_canonical(name)]
         seeds = self.graph.align_seeds(keys)
         if not seeds:
             return {"entity": name, "found": False, "segments": [], "related": []}

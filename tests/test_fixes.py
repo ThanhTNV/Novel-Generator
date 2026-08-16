@@ -119,6 +119,35 @@ def test_reingesting_a_source_keeps_its_ordinal(tmp_path):
     assert after["a.md"] < after["b.md"]
 
 
+def test_entity_profile_finds_an_accented_name_the_gazetteer_lacks(tmp_path):
+    """
+    Every key in the graph is accent-folded, so entity_profile's fallback has
+    to fold too. Lowercasing alone meant a character referred to by the short
+    form prose actually uses — "Khải", not the declared "Trần Quang Khải" —
+    always reported found=False.
+    """
+    eng = _engine(tmp_path)
+    # Both names appear mid-sentence, which is what lets the proper-noun
+    # scanner keep a single-word capitalised token at all.
+    eng.ingest_text(
+        u"Trong điện, Khải bước vào. Hoàng đế nhìn Khải rất lâu.\n\n"
+        u"Bản sổ ấy do Tuyên giữ. Ngân khố dưới tay Tuyên hao hụt từng tháng.",
+        source="ch1.md", kind="chapter", chapter=1,
+    )
+
+    for short_name in (u"Khải", u"Tuyên"):
+        folded = short_name.lower().replace(u"ả", "a").replace(u"ê", "e")
+        assert folded in eng.graph.entity_segments, "precondition: graph keys are folded"
+        profile = eng.entity_profile(short_name)
+        assert profile["found"] is True, "%s should resolve" % short_name
+        assert profile["mentions"] > 0
+
+    # Unaccented spelling of the same query must land on the same entity.
+    assert eng.entity_profile(u"Khai")["entity"] == eng.entity_profile(u"Khải")["entity"]
+    # A name genuinely absent still reports found=False.
+    assert eng.entity_profile(u"Bá Đa Lộc")["found"] is False
+
+
 def test_reference_ordinals_never_reach_the_narrative_band(tmp_path):
     eng = _engine(tmp_path)
     for i in range(5):
