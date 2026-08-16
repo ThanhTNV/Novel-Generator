@@ -45,8 +45,39 @@ app.add_middleware(
 TEMPLATES_DIR = ROOT_DIR / "frontend" / "templates"
 STATIC_DIR = ROOT_DIR / "frontend" / "static"
 
+
+class RevalidatingStatics(StaticFiles):
+    """
+    Serve static files with `Cache-Control: no-cache`.
+
+    Starlette sends ETag and Last-Modified but no Cache-Control, which leaves
+    the browser to guess — and browsers guess "reuse without asking". That
+    produced the worst possible skew here: index.html comes from a route below
+    and is always fresh, while app.js and style.css came from cache, so a new
+    page ran old scripts against markup whose ids had changed and threw on the
+    first getElementById that returned null.
+
+    `no-cache` means revalidate, not "don't store": the ETag still turns almost
+    every request into a 304, so this costs one round trip, not a re-download.
+    """
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return response
+
+
 if STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    app.mount("/static", RevalidatingStatics(directory=str(STATIC_DIR)), name="static")
+
+
+def _asset_stamp(name: str) -> str:
+    """Short fingerprint of a static file, from its size and mtime."""
+    try:
+        st = (STATIC_DIR / name).stat()
+        return "%x-%x" % (int(st.st_mtime), st.st_size)
+    except OSError:
+        return "0"
 
 
 # ---------------------------------------------------------------------------
@@ -182,9 +213,17 @@ class ContextFileRequest(NovelScoped):
 @app.get("/", response_class=HTMLResponse)
 async def index():
     html_path = TEMPLATES_DIR / "index.html"
-    if html_path.exists():
-        return HTMLResponse(html_path.read_text(encoding="utf-8"))
-    return HTMLResponse("<h1>Novel Generator</h1><p>Frontend not found.</p>")
+    if not html_path.exists():
+        return HTMLResponse("<h1>Novel Generator</h1><p>Frontend not found.</p>")
+
+    html = html_path.read_text(encoding="utf-8")
+    # Stamp the asset URLs so markup and scripts can never come from different
+    # versions. Editing either file changes its URL, which no cache can answer
+    # from a stale copy.
+    for name in ("style.css", "app.js"):
+        html = html.replace("/static/%s" % name,
+                            "/static/%s?v=%s" % (name, _asset_stamp(name)))
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
 
 # ---------------------------------------------------------------------------
