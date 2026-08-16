@@ -94,16 +94,44 @@ def _novel(slug: Optional[str]) -> novels.Novel:
         raise HTTPException(400, str(exc))
 
 
-def _safe_child(directory: Path, filename: str, what: str) -> Path:
+def is_safe_child_name(filename: str) -> bool:
     """
-    Resolve ``filename`` inside ``directory``, refusing to escape it.
+    Is this a plain filename, with no path meaning on any operating system?
 
-    Starlette percent-decodes path parameters, and on Windows ``Path`` treats a
-    decoded backslash as a separator, so `..%5C..%5Cx` walks out of the
-    directory unless the result is checked for containment.
+    Pure string logic, deliberately: ``Path`` semantics are not portable and
+    this guard must not be either. Starlette percent-decodes path parameters,
+    so ``..%5C..%5Cx`` arrives as ``..\\..\\x`` — on Windows those backslashes
+    are separators and the join escapes the directory, while on Linux they are
+    ordinary filename characters, so nothing escapes but the server cheerfully
+    creates a file named ``..\\..\\x``. One input, two behaviours, neither
+    wanted, and a containment check alone cannot see the second one. Rejecting
+    the string means Windows and Linux answer identically — which is also what
+    lets a test run on either platform prove the behaviour on both.
     """
+    name = (filename or "").strip()
+    if not name or len(name) > 200:
+        return False
+    if "/" in name or "\\" in name or "\x00" in name:
+        return False
+    if name.startswith("."):          # covers "." and ".." as well as dotfiles
+        return False
+    # Reserved on Windows; harmless on Linux, but a shared corpus should not
+    # contain a file one of its platforms cannot check out.
+    stem = name.split(".")[0].upper()
+    if stem in ("CON", "PRN", "AUX", "NUL") or re.match(r"^(COM|LPT)[1-9]$", stem):
+        return False
+    return True
+
+
+def _safe_child(directory: Path, filename: str, what: str) -> Path:
+    """Resolve ``filename`` inside ``directory``, refusing to escape it."""
+    if not is_safe_child_name(filename):
+        raise HTTPException(400, "Invalid %s name." % what)
+
     base = directory.resolve()
-    candidate = (base / filename).resolve()
+    candidate = (base / filename.strip()).resolve()
+    # Kept behind the string check as defence in depth: symlinks and odd mount
+    # layouts can still resolve a legal-looking name outside the directory.
     if candidate != base and base not in candidate.parents:
         raise HTTPException(400, "Invalid %s name." % what)
     return candidate

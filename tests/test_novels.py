@@ -259,9 +259,70 @@ def test_deleting_context_removes_it_from_memory(workspace):
     assert not hits["results"], "deleted context must not stay retrievable"
 
 
-@pytest.mark.parametrize("bad", ["..%5C..%5Cevil.md", "..%2Fevil.md"])
+@pytest.mark.parametrize("bad", [
+    "..%5C..%5Cevil.md",   # backslash: a separator on Windows, a filename char on Linux
+    "..%5Cevil.md",
+    "%2e%2e%5cevil.md",
+    "..%2Fevil.md",        # these never reach the handler: a path param
+    "sub%2Fevil.md",       # cannot match across '/', so the router 404s first
+    "..",
+    ".hidden.md",
+])
 def test_context_paths_cannot_escape(workspace, bad):
+    """
+    Rejected, and — the part that actually matters — nothing written.
+
+    Status alone is not the invariant: `%2F` forms are 404s from the router
+    before any handler runs, while backslash forms reach the handler and are
+    400. What must hold on every platform is that no file appears. `..\\..\\x`
+    traverses on Windows but is a legal filename on Linux, so the containment
+    check alone let Linux return 200 and create a file named `..\\..\\evil.md`.
+    """
     client = workspace
     slug = _make(client, "Book A")
     r = client.put("/api/context/" + bad, json={"novel": slug, "content": "x"})
     assert r.status_code in (400, 404), r.text
+
+    assert client.get("/api/context?novel=%s" % slug).json()["files"] == []
+    assert list(novels.get(slug).context_dir.iterdir()) == [], "a file was created"
+
+
+@pytest.mark.parametrize("bad", ["..%5C..%5Cevil.md", "..%5Cx.md", "%2e%2e%5cx.md"])
+def test_backslash_names_are_refused_by_the_handler(workspace, bad):
+    """These do reach the handler, so they must be an explicit 400 everywhere."""
+    client = workspace
+    slug = _make(client, "Book A")
+    assert client.put("/api/context/" + bad,
+                      json={"novel": slug, "content": "x"}).status_code == 400
+    assert client.get("/api/chapters/%s?novel=%s" % (bad, slug)).status_code == 400
+    assert client.delete("/api/chapters/%s?novel=%s" % (bad, slug)).status_code == 400
+
+
+def test_chapter_paths_cannot_escape_either(workspace):
+    client = workspace
+    slug = _make(client, "Book A")
+    for bad in ("..%5C..%5Cevil.md", "..%2Fevil.md", "sub%2Fx.md"):
+        assert client.get("/api/chapters/%s?novel=%s"
+                          % (bad, slug)).status_code in (400, 404)
+        assert client.delete("/api/chapters/%s?novel=%s"
+                             % (bad, slug)).status_code in (400, 404)
+    assert list(novels.get(slug).chapters_dir.iterdir()) == []
+
+
+def test_ordinary_filenames_still_work(workspace):
+    """
+    The tightening must not reject the names people actually use.
+
+    ASCII names only here: the *content* is Vietnamese, which is what this
+    project cares about, while a Unicode filename would be testing the runner's
+    filesystem locale rather than any code of ours. Unicode names are covered
+    by the pure-string check in test_server_paths.py, which has no such
+    dependency.
+    """
+    client = workspace
+    slug = _make(client, "Book A")
+    for name in ("characters.md", "dia-diem.md", "world_2.md"):
+        r = client.put("/api/context/" + name,
+                       json={"novel": slug, "content": u"## Văn Tâm\n\nNội dung."})
+        assert r.status_code == 200, (name, r.text)
+        assert client.get("/api/context/%s?novel=%s" % (name, slug)).status_code == 200

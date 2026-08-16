@@ -20,7 +20,7 @@ os.environ.setdefault("EMBEDDING_PROVIDER", "hash")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from backend.server import _slugify, app  # noqa: E402
+from backend.server import _slugify, app, is_safe_child_name  # noqa: E402
 
 client = TestClient(app)
 
@@ -43,6 +43,48 @@ def test_chapter_read_cannot_escape_the_chapters_directory(probe):
 def test_legitimate_missing_chapter_is_a_404():
     resp = client.get("/api/chapters/chapter-001-nope.md")
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Name validation — pure string logic, so this run proves both platforms
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("name", [
+    "..\\..\\evil.md",      # a separator on Windows, a legal filename on Linux
+    "..\\evil.md",
+    "../evil.md",
+    "sub/evil.md",
+    "..",
+    ".",
+    ".hidden",
+    "",
+    "   ",
+    "nul.md",
+    "COM1.txt",
+    "with\x00null.md",
+    "x" * 201,
+])
+def test_unsafe_names_are_rejected_on_every_platform(name):
+    """
+    The reason this is a string test and not an HTTP test: `Path` disagrees
+    across operating systems about what `..\\..\\x` means, so an HTTP test
+    passing on Windows said nothing about Linux — which is exactly how CI
+    caught a case that wrote a file named `..\\..\\evil.md`.
+    """
+    assert is_safe_child_name(name) is False, name
+
+
+@pytest.mark.parametrize("name", [
+    "characters.md",
+    "chapter-001-mo-dau.md",
+    "nhân-vật.md",
+    "world_2.md",
+    "a.md",
+    "Đồ Lục.md",
+])
+def test_ordinary_names_are_accepted(name):
+    """The tightening must not reject the names people actually use."""
+    assert is_safe_child_name(name) is True, name
 
 
 @pytest.mark.parametrize("title,expected", [
