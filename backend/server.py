@@ -19,7 +19,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from backend import novels
+from backend import history, novels
 from backend.agent import NovelAgent
 from backend.config import ROOT_DIR, settings
 from backend.rag_pipeline import (
@@ -102,6 +102,10 @@ class GenerateRequest(NovelScoped):
     story_summary: str = ""
     characters: List[str] = Field(default_factory=list)
     locations: List[str] = Field(default_factory=list)
+    # The scene's in-story date (YYYY, YYYY-MM, YYYY-MM-DD). Drives both halves
+    # of the guardrail: the model is only served records up to this date, and
+    # the finished draft is checked for anachronisms against it.
+    scene_date: Optional[str] = None
     target_words: int = settings.default_target_words
     temperature: float = 0.7
     # None => derived from target_words (Vietnamese needs ~2.4 tok/word, so a
@@ -263,14 +267,41 @@ async def generate_chapter(req: GenerateRequest):
         target_words=req.target_words,
         temperature=req.temperature,
         max_tokens=req.max_tokens,
+        scene_date=req.scene_date,
     )
 
     if req.stream:
-        return StreamingResponse(
-            _guarded_stream(agent.generate_chapter_stream(**kwargs)),
-            media_type="text/event-stream",
-        )
-    return {"content": await agent.generate_chapter(**kwargs), "novel": novel.slug}
+        async def event_stream():
+            # Research lands before the first token, the check after the last,
+            # so the client can show sources up front and conflicts at the end
+            # without the token stream carrying anything but prose.
+            sidecar = {}
+            try:
+                stream = agent.generate_chapter_stream(
+                    on_research=lambda r: sidecar.setdefault("research", r),
+                    on_check=lambda c: sidecar.setdefault("check", c),
+                    **kwargs
+                )
+                first = True
+                async for token in stream:
+                    if first and "research" in sidecar:
+                        yield _sse({"history": {
+                            "records": sidecar["research"]["records"],
+                            "calls": sidecar["research"]["calls"],
+                        }})
+                        first = False
+                    yield _sse({"token": token})
+                if "check" in sidecar:
+                    yield _sse({"history_check": sidecar["check"]})
+            except Exception as exc:
+                yield _sse({"error": str(exc)})
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+    result = await agent.generate_chapter(**kwargs)
+    result["novel"] = novel.slug
+    return result
 
 
 @app.post("/api/revise")
@@ -442,6 +473,78 @@ async def delete_context_file(filename: str, novel: Optional[str] = Query(None))
     engine.delete_source(path.name)
     engine.refresh_gazetteer()
     return {"status": "deleted", "filename": path.name}
+
+
+# ---------------------------------------------------------------------------
+# History — the vetted corpus
+# ---------------------------------------------------------------------------
+
+class HistorySearchRequest(NovelScoped):
+    query: str
+    before: Optional[str] = None
+    limit: int = 6
+
+
+class HistoryCheckRequest(NovelScoped):
+    text: str
+    scene_date: Optional[str] = None
+
+
+def _history(novel) -> history.HistoryIndex:
+    try:
+        return history.get_index(novel)
+    except history.HistoryError as exc:
+        # A malformed corpus is an author error with a fixable message, not a
+        # server fault — and never a reason to serve unvetted claims instead.
+        raise HTTPException(422, "Sử liệu không hợp lệ: %s" % exc)
+
+
+@app.post("/api/history/search")
+async def history_search(req: HistorySearchRequest):
+    """The same closed-corpus search the model's tool calls."""
+    workspace = _novel(req.novel)
+    index = _history(workspace)
+    try:
+        hits = index.search(req.query, limit=max(1, min(req.limit, 20)), before=req.before)
+    except history.HistoryError as exc:
+        raise HTTPException(400, str(exc))
+    return {"results": hits, "corpus_size": len(index), "novel": workspace.slug}
+
+
+@app.get("/api/history")
+async def history_list(novel: Optional[str] = Query(None),
+                       start: Optional[str] = Query(None),
+                       end: Optional[str] = Query(None)):
+    """Every record in chronological order, for review."""
+    workspace = _novel(novel)
+    index = _history(workspace)
+    try:
+        records = index.timeline(start, end, limit=1000)
+    except history.HistoryError as exc:
+        raise HTTPException(400, str(exc))
+    undated = [index._hit(r, 0.0) for r in index.records if r.start is None]
+    return {"records": records + undated, "corpus_size": len(index),
+            "novel": workspace.slug}
+
+
+@app.post("/api/history/check")
+async def history_check(req: HistoryCheckRequest):
+    """Check a draft for anachronisms and locked-history conflicts."""
+    workspace = _novel(req.novel)
+    result = _history(workspace).check(req.text, req.scene_date)
+    result["novel"] = workspace.slug
+    return result
+
+
+@app.post("/api/history/reload")
+async def history_reload(req: Optional[NovelScoped] = None):
+    """Re-read the corpus from disk after editing the YAML."""
+    workspace = _novel(req.novel if req else None)
+    try:
+        index = history.reload_index(workspace)
+    except history.HistoryError as exc:
+        raise HTTPException(422, "Sử liệu không hợp lệ: %s" % exc)
+    return {"corpus_size": len(index), "novel": workspace.slug}
 
 
 # ---------------------------------------------------------------------------

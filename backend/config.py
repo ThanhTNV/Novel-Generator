@@ -36,6 +36,17 @@ class Settings(BaseSettings):
     novels_dir: str = str(ROOT_DIR / "novels")
     default_novel: str = "default"
 
+    # Vetted historical corpus. Shared factual records live here; a novel's own
+    # history/ directory adds to it and declares where the story departs.
+    history_dir: str = str(ROOT_DIR / "history")
+    # Let the writing model call search_history before it drafts. Off means the
+    # corpus is still searchable by hand and drafts are still checked.
+    history_tool_enabled: bool = True
+    # Cap the research phase so a confused model cannot loop up a bill.
+    history_max_tool_calls: int = 6
+    # Check finished drafts against the corpus and return the findings.
+    history_check_drafts: bool = True
+
     # Optional Gemini SLM extractor for Zero-Mem: adds relation triples and
     # unlisted entities on top of the token-free gazetteer/pattern NER.
     # Enabled automatically when GEMINI_API_KEY (or GOOGLE_API_KEY) is set;

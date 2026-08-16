@@ -17,6 +17,9 @@ groq>=0.15.0
 # cloud (pulls torch + a multi-GB model):
 #   pip install "sentence-transformers>=3.4.0"
 
+# Vetted historical corpus (backend/history) is YAML on disk.
+pyyaml>=6.0
+
 # Text processing
 tiktoken>=0.8.0
 markdown>=3.7

@@ -1,0 +1,273 @@
+# Sử liệu thời Tây Sơn — bản thẩm định dùng chung cho mọi tiểu thuyết.
+#
+# Mỗi ghi chép BẮT BUỘC có nguồn. Ghi chép thiếu nguồn sẽ bị từ chối ngay khi
+# nạp, chứ không bị bỏ qua âm thầm — công cụ chỉ được phép trả về những gì tác
+# giả đã thẩm định.
+#
+# confidence: attested (chính sử ghi rõ) | probable (nhiều nguồn, chi tiết vênh)
+#             | disputed (các nguồn mâu thuẫn)
+# locked:     truyện không được mâu thuẫn. Mặc định true.
+#
+# Điểm rẽ nhánh của TỪNG truyện được khai báo trong novels/<id>/history/, không
+# phải ở đây: sử liệu là chung, còn chỗ rẽ nhánh là của riêng mỗi tác phẩm.
+#
+# ⚠ Bản seed này do trợ lý soạn từ kiến thức phổ thông về giai đoạn Tây Sơn.
+#   Hãy đối chiếu lại với nguồn trước khi tin tuyệt đối, nhất là các ngày âm
+#   lịch quy đổi và các mốc còn tranh luận.
+
+records:
+  # ---------------------------------------------------------------- nhân vật
+  - id: nguyen-hue-birth
+    claim: "Nguyễn Huệ sinh tại ấp Kiên Thành, phủ Quy Nhơn"
+    date: 1753
+    entities: ["Nguyễn Huệ", "Quy Nhơn"]
+    tags: [nhân vật]
+    confidence: probable
+    note: "Năm sinh được chép khác nhau giữa các nguồn; 1753 là mốc phổ biến nhất."
+    sources:
+      - "Đại Nam chính biên liệt truyện, sơ tập, quyển 30"
+      - "Đại Nam thực lục"
+
+  - id: tay-son-uprising
+    claim: "Ba anh em Nguyễn Nhạc, Nguyễn Lữ, Nguyễn Huệ khởi binh ở ấp Tây Sơn"
+    date: 1771
+    entities: ["Nguyễn Nhạc", "Nguyễn Lữ", "Nguyễn Huệ", "Tây Sơn"]
+    tags: [sự kiện, khởi nghĩa]
+    confidence: attested
+    sources:
+      - "Đại Nam thực lục, Tiền biên"
+      - "Hoàng Lê nhất thống chí"
+
+  - id: rach-gam-xoai-mut
+    claim: "Nguyễn Huệ đánh tan quân Xiêm tại Rạch Gầm – Xoài Mút"
+    date: 1785-01
+    entities: ["Nguyễn Huệ", "Rạch Gầm", "Xoài Mút", "quân Xiêm", "Nguyễn Ánh"]
+    tags: [sự kiện, chiến dịch]
+    confidence: attested
+    note: "Trận này đẩy Nguyễn Ánh phải lưu vong sang Xiêm."
+    sources:
+      - "Đại Nam thực lục, Tiền biên"
+      - "Đại Nam chính biên liệt truyện"
+
+  - id: nguyen-hue-north-1786
+    claim: "Nguyễn Huệ ra Bắc lần thứ nhất, lấy danh nghĩa phù Lê diệt Trịnh"
+    date: 1786
+    entities: ["Nguyễn Huệ", "Thăng Long", "chúa Trịnh", "vua Lê"]
+    tags: [sự kiện]
+    confidence: attested
+    sources:
+      - "Hoàng Lê nhất thống chí"
+      - "Đại Nam thực lục, Tiền biên"
+
+  - id: ngo-thi-nham-service
+    ongoing: true
+    claim: "Ngô Thì Nhậm ra làm quan cho Tây Sơn, giữ vai trò soạn thảo văn thư bang giao"
+    date: 1788
+    entities: ["Ngô Thì Nhậm", "Nguyễn Huệ", "Thăng Long"]
+    tags: [nhân vật, triều chính]
+    confidence: attested
+    note: "Ông là người chấp bút phần lớn thư từ ngoại giao với nhà Thanh."
+    sources:
+      - "Hoàng Lê nhất thống chí"
+      - "Đại Nam chính biên liệt truyện"
+
+  - id: quang-trung-enthronement
+    claim: "Nguyễn Huệ lên ngôi hoàng đế, đặt niên hiệu Quang Trung, trước khi ra Bắc đánh quân Thanh"
+    date: 1788-12
+    entities: ["Nguyễn Huệ", "Quang Trung", "Phú Xuân"]
+    tags: [sự kiện, triều chính]
+    confidence: attested
+    sources:
+      - "Đại Nam thực lục, Tiền biên"
+      - "Hoàng Lê nhất thống chí, hồi 14"
+
+  - id: ngoc-hoi-dong-da
+    claim: "Quang Trung đại phá quân Thanh tại Ngọc Hồi – Đống Đa, giải phóng Thăng Long"
+    date: 1789-01-30
+    entities: ["Quang Trung", "Nguyễn Huệ", "Ngọc Hồi", "Đống Đa", "Thăng Long", "quân Thanh", "Tôn Sĩ Nghị"]
+    tags: [sự kiện, chiến dịch]
+    confidence: attested
+    note: "Mùng 5 Tết Kỷ Dậu. Tôn Sĩ Nghị bỏ chạy về nước."
+    sources:
+      - "Hoàng Lê nhất thống chí, hồi 14"
+      - "Đại Nam thực lục, Tiền biên"
+
+  # ------------------------------------------------------------- chính sách
+  - id: chieu-khuyen-nong
+    introduces: ["Chiếu Khuyến nông"]
+    ongoing: true
+    claim: "Quang Trung ban Chiếu Khuyến nông, chiêu tập lưu dân và bắt khai khẩn ruộng bỏ hoang"
+    date: 1789
+    entities: ["Quang Trung", "Chiếu Khuyến nông", "Bắc Hà"]
+    tags: [chính sách, nông nghiệp]
+    confidence: attested
+    note: "Ruộng bỏ hoang quá hạn không khai khẩn thì bị sung công và đánh thuế nặng."
+    sources:
+      - "Đại Nam thực lục, Tiền biên"
+      - "Lịch triều hiến chương loại chí, Quốc dụng chí"
+
+  - id: chieu-lap-hoc
+    introduces: ["Chiếu Lập học"]
+    ongoing: true
+    claim: "Quang Trung ban Chiếu Lập học, mở trường ở xã huyện và trọng dụng chữ Nôm"
+    date: 1789
+    entities: ["Quang Trung", "Chiếu Lập học", "chữ Nôm", "Nguyễn Thiếp"]
+    tags: [chính sách, giáo dục]
+    confidence: attested
+    sources:
+      - "Đại Nam thực lục, Tiền biên"
+      - "La Sơn phu tử, Hoàng Xuân Hãn"
+
+  - id: vien-sung-chinh
+    introduces: ["Viện Sùng Chính"]
+    ongoing: true
+    claim: "Lập Viện Sùng Chính, mời Nguyễn Thiếp làm viện trưởng để dịch kinh sách ra chữ Nôm"
+    date: 1791
+    entities: ["Viện Sùng Chính", "Nguyễn Thiếp", "La Sơn Phu Tử", "chữ Nôm", "Quang Trung"]
+    tags: [chính sách, giáo dục]
+    confidence: attested
+    sources:
+      - "La Sơn phu tử, Hoàng Xuân Hãn"
+      - "Đại Nam chính biên liệt truyện"
+
+  - id: tin-bai
+    introduces: ["Tín bài"]
+    ongoing: true
+    claim: "Quang Trung ban phép Tín bài, buộc dân đinh mang thẻ ghi tên quán để quản lý nhân khẩu"
+    date: 1790
+    entities: ["Quang Trung", "Tín bài"]
+    tags: [chính sách, hộ tịch]
+    confidence: attested
+    note: "Mục đích chính là nắm dân đinh cho binh dịch và lao dịch."
+    sources:
+      - "Đại Nam thực lục, Tiền biên"
+      - "Lịch triều hiến chương loại chí, Quốc dụng chí"
+
+  - id: quang-trung-thong-bao
+    introduces: ["Quang Trung thông bảo"]
+    claim: "Triều Quang Trung đúc và lưu hành tiền đồng Quang Trung thông bảo"
+    date: 1789
+    until: 1792
+    entities: ["Quang Trung thông bảo", "Quang Trung"]
+    tags: [chính sách, tiền tệ]
+    confidence: attested
+    sources:
+      - "Đại Nam thực lục, Tiền biên"
+      - "Sưu tập tiền cổ Việt Nam, Bảo tàng Lịch sử Quốc gia"
+
+  - id: bang-giao-thanh
+    claim: "Nhà Thanh sách phong Quang Trung làm An Nam quốc vương sau khi hai bên giảng hòa"
+    date: 1789
+    entities: ["Quang Trung", "nhà Thanh", "Càn Long", "Ngô Thì Nhậm"]
+    tags: [ngoại giao]
+    confidence: attested
+    note: "Ngô Thì Nhậm là người chấp bút phần lớn văn thư bang giao."
+    sources:
+      - "Hoàng Lê nhất thống chí"
+      - "Đại Nam thực lục, Tiền biên"
+
+  - id: doi-luong-quang
+    claim: "Quang Trung sai sứ sang nhà Thanh cầu hôn và đòi đất Lưỡng Quảng"
+    date: 1792
+    entities: ["Quang Trung", "Lưỡng Quảng", "nhà Thanh", "Càn Long"]
+    tags: [ngoại giao]
+    confidence: probable
+    note: "Việc chưa đi đến đâu thì Quang Trung mất. Mức độ nghiêm túc của yêu sách còn được bàn."
+    sources:
+      - "Đại Nam thực lục, Tiền biên"
+      - "Hoàng Lê nhất thống chí"
+
+  # ------------------------------------------------------- sau năm 1792
+  - id: quang-trung-death
+    claim: "Quang Trung băng hà tại Phú Xuân, ở ngôi được bốn năm"
+    date: 1792-09-16
+    entities: ["Quang Trung", "Nguyễn Huệ", "Phú Xuân"]
+    tags: [sự kiện, triều chính]
+    confidence: attested
+    note: "Ngày quy đổi từ âm lịch; các nguồn chép hơi khác nhau về ngày chính xác."
+    sources:
+      - "Đại Nam thực lục, Tiền biên"
+      - "Đại Nam chính biên liệt truyện"
+
+  - id: canh-thinh-enthroned
+    claim: "Nguyễn Quang Toản lên ngôi khi mới mười tuổi, lấy niên hiệu Cảnh Thịnh"
+    date: 1792
+    entities: ["Nguyễn Quang Toản", "Cảnh Thịnh", "Phú Xuân"]
+    tags: [triều chính]
+    confidence: attested
+    sources:
+      - "Đại Nam thực lục, Tiền biên"
+      - "Hoàng Lê nhất thống chí"
+
+  - id: bui-dac-tuyen-fall
+    claim: "Bùi Đắc Tuyên chuyên quyền rồi bị Vũ Văn Dũng bắt và giết, mở đầu cuộc tự tàn sát nội bộ Tây Sơn"
+    date: 1795
+    entities: ["Bùi Đắc Tuyên", "Vũ Văn Dũng", "Cảnh Thịnh", "Phú Xuân"]
+    tags: [triều chính, biến cố]
+    confidence: attested
+    sources:
+      - "Đại Nam thực lục, Tiền biên"
+      - "Đại Nam chính biên liệt truyện"
+
+  - id: nguyen-anh-gia-dinh
+    ongoing: true
+    claim: "Nguyễn Ánh lấy lại Gia Định và giữ làm căn cứ lâu dài"
+    date: 1788
+    entities: ["Nguyễn Ánh", "Gia Định"]
+    tags: [sự kiện]
+    confidence: attested
+    sources:
+      - "Đại Nam thực lục, Tiền biên"
+
+  - id: ba-da-loc
+    claim: "Bá Đa Lộc thay mặt Nguyễn Ánh ký hiệp ước Versailles với Pháp và chiêu mộ sĩ quan, tàu thuyền giúp Nguyễn Ánh"
+    date: 1787
+    until: 1799
+    entities: ["Bá Đa Lộc", "Pierre Pigneau de Behaine", "Nguyễn Ánh", "Pháp", "hiệp ước Versailles"]
+    tags: [ngoại giao, nhân vật]
+    confidence: attested
+    note: "Triều đình Pháp không thực thi hiệp ước; viện trợ thực tế do Bá Đa Lộc tự vận động."
+    sources:
+      - "Đại Nam chính biên liệt truyện"
+      - "Histoire de la mission de Cochinchine, Adrien Launay"
+
+  - id: tay-son-fall
+    claim: "Nguyễn Ánh chiếm Phú Xuân rồi ra Thăng Long, triều Tây Sơn sụp đổ"
+    date: 1802
+    entities: ["Nguyễn Ánh", "Gia Long", "Phú Xuân", "Thăng Long", "Cảnh Thịnh"]
+    tags: [sự kiện]
+    confidence: attested
+    sources:
+      - "Đại Nam thực lục, Chính biên"
+
+  # ------------------------------------------------------------- bối cảnh
+  - id: hoi-an-decline
+    claim: "Cảng Hội An sa sút dần do sông Thu Bồn bồi lấp và loạn lạc cuối thế kỷ 18, thương thuyền chuyển dần sang Đà Nẵng"
+    date: 1770
+    until: 1800
+    entities: ["Hội An", "Đà Nẵng", "Thu Bồn"]
+    tags: [bối cảnh, thương mại]
+    confidence: probable
+    sources:
+      - "Xứ Đàng Trong, Li Tana"
+
+  - id: canton-system
+    claim: "Nhà Thanh giới hạn ngoại thương phương Tây ở Quảng Châu theo chế độ Nhất khẩu thông thương"
+    date: 1757
+    until: 1842
+    entities: ["nhà Thanh", "Quảng Châu", "Canton"]
+    tags: [bối cảnh, thương mại]
+    confidence: attested
+    note: "Vì vậy hàng phương Tây vào Trung Hoa qua ngả nào cũng đều đắt đỏ và bị kiểm soát."
+    sources:
+      - "The Canton Trade, Paul Van Dyke"
+
+  - id: tau-o-pirates
+    claim: "Hải tặc Tàu Ô hoạt động mạnh ở vùng biển Nam Trung Hoa và vịnh Bắc Bộ, có lúc được Tây Sơn dung dưỡng"
+    date: 1780
+    until: 1802
+    entities: ["Tàu Ô", "hải tặc", "Biển Đông", "Tây Sơn"]
+    tags: [bối cảnh, hàng hải]
+    confidence: attested
+    sources:
+      - "Pirates of the South China Coast, Dian Murray"

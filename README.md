@@ -10,6 +10,7 @@ Generate, revise, and finalize novel chapters using Claude, OpenAI, Groq, or loc
 - **No local ML** — embeddings (`gemini-embedding-001`) and entity/relation extraction (`gemini-3.1-flash-lite`) both run in the cloud over plain HTTP. Set one `GEMINI_API_KEY` and the whole memory layer works; without it the engine uses a built-in hash function and still retrieves well via BM25 + the entity graph. Nothing is ever downloaded.
 - **Zero-Mem memory** — replaces the old ChromaDB RAG pipeline, which measurably lost context on this Vietnamese corpus: its sentence splitter required `[A-Z]` after punctuation (never matches Đ/Ư/Ổ...), collapsing the whole character bible into two ~400-word blobs; revised chapters left stale chunks behind forever; and every generation fired a hard-coded English plot query. Zero-Mem stores paragraphs verbatim with heading provenance, supersedes on re-ingest, grounds queries in an entity graph (accent-tolerant: "Van Tam" finds "Văn Tâm"), and returns contiguous passages in narrative order.
 - **Multi-provider LLM** — Claude, OpenAI, Groq, Ollama with streaming support.
+- **Verified history, not remembered history** — the writer can call a `search_history` tool that answers only from a corpus you vetted. A record without a citation is refused when the corpus loads, retrieval generates nothing, and no match returns an explicit "no record" rather than a guess. Finished drafts are checked for anachronisms and contradictions, each flag citing its source. Alternate history is first-class: declare where your novel departs and the checker stops flagging your own premise.
 - **One folder per novel** — each book keeps its own world bible, chapters and memory store, so writing chapter 12 of one can never retrieve a character from another. Switch between them in the sidebar.
 - **Skills & rules** — modular markdown files that shape every generation, with per-novel overrides when one book needs a different tone.
 - **Web editor** — compose, preview, revise and finalize chapters in the browser, in light or dark.
@@ -22,6 +23,8 @@ Generate, revise, and finalize novel chapters using Claude, OpenAI, Groq, or loc
 backend/
   config.py          Settings from environment variables
   novels.py          Per-novel workspaces: paths, registry, first-run seeding
+  history/           Vetted historical corpus: loader, closed-corpus search,
+                     anachronism + contradiction checker, LLM tool surface
   rag_pipeline.py    Zero-Mem facade — one engine per novel
   zero_mem/          memory engine: segmentation, entity graph, PPR,
                      BM25 + dense retrieval, SQLite trace store
@@ -34,12 +37,14 @@ frontend/
 skills/              Project-default generation workflows
 rules/               Project-default constraints (tone, style, genre)
 prompts/             System and chapter prompt templates
+history/*.yaml       Vetted historical record, shared by every novel
 
 novels/<id>/         one self-contained novel
   novel.json         title, description, created_at
   context/           world bible — the entity gazetteer is built from this
   chapters/          finalized chapters
   rules/ skills/     optional per-novel overrides
+  history/           this novel's added records and divergence points
   memory/            that novel's own Zero-Mem store (SQLite)
 ```
 

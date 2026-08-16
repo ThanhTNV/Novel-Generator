@@ -134,6 +134,86 @@ Both accept `"stream": true` for SSE streaming.
 
 ---
 
+## Historical reference
+
+A tool the writing model can call for **vetted** history, plus a checker that
+reads the finished draft. Both are scoped to one novel.
+
+### What is and is not guaranteed
+
+The tool cannot tell you a fact is *true* — that is what your sources are for.
+What it guarantees is narrower and enforced in code:
+
+* **Every returnable claim is cited.** A record without a source is *refused at
+  load time*, not skipped. A corpus that silently dropped bad records would let
+  you believe a claim is backed when it is not.
+* **Nothing is generated.** Retrieval is BM25 over the corpus and returns
+  records verbatim. There is no code path where a claim comes from anywhere but
+  a loaded record, so the tool cannot invent one.
+* **Silence is explicit.** No match returns "KHÔNG CÓ GHI CHÉP" plus an
+  instruction not to speculate — a model handed silence supplies a plausible
+  fact instead, which is the failure this exists to prevent.
+* **The future is hidden.** Pass the scene's date and records dated later are
+  dropped, so a chapter set in 1789 is never shown a fact from 1797.
+
+### Alternate history
+
+A checker that flagged "Quang Trung is alive in 1795" would flag the premise of
+*Đế Chế Đông A* and be switched off within a day, taking the real warnings with
+it. So records carry an explicit split:
+
+| Field | Meaning |
+|---|---|
+| `locked` | Pre-divergence canon; the draft must not contradict it. Default `true`. |
+| `diverges` + `divergence_note` | This novel departs here **on purpose**. Never flagged, and the model is told to follow your version instead of the record. |
+| `ongoing` | Began then and continued. An office founded in 1792 still stands in 1795; only a year *before* it started is wrong. Inferred from `until`. |
+| `introduces` | Things this record brings into existence. Only these can raise a "does not exist yet" flag — opt-in, because inferring it reported Phú Xuân as an anachronism when an emperor died there. |
+
+### Layout
+
+```
+history/*.yaml                  shared factual record (all novels)
+novels/<id>/history/*.yaml      this novel's additions and divergences
+```
+
+Later files override earlier ones **by id**, which is how a novel declares a
+divergence on top of a shared record without duplicating it.
+
+### How it runs
+
+Research and writing are separate calls. The model may query the corpus freely,
+then only the tool's own output is injected into the writing prompt — its
+commentary is discarded, so nothing unsourced rides along as if it were a
+record. Streaming is unaffected: research finishes before the first token, the
+check runs after the last.
+
+Tool use works on Claude, OpenAI and Groq, and on Ollama models that support
+it. If a provider cannot, the chapter is still written — just without
+references.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/history` | Every record, chronological |
+| `POST` | `/api/history/search` | The same closed-corpus search the model calls |
+| `POST` | `/api/history/check` | Check a draft: `{text, scene_date}` |
+| `POST` | `/api/history/reload` | Re-read the YAML after editing |
+
+Settings: `HISTORY_DIR`, `HISTORY_TOOL_ENABLED`, `HISTORY_MAX_TOOL_CALLS`,
+`HISTORY_CHECK_DRAFTS`.
+
+### Enforcement
+
+Findings are **annotations, never edits**. Each cites the record and its source
+and offers two moves: *Rewrite this* appends the conflict to your revision
+notes, or *Accept as divergence* shows the YAML to add. Nothing is silently
+rewritten, and a deliberate departure is never blocked.
+
+> The shipped `history/tay-son.yaml` was drafted by an assistant from general
+> knowledge of the period. Check it against the sources before trusting it,
+> especially the lunar-calendar conversions and the contested dates.
+
+---
+
 ## Customization
 
 ### Rules (`rules/*.md`)

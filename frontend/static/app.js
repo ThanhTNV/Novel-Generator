@@ -26,6 +26,7 @@ const PANELS = {
   manuscript: { title: "Manuscript", hint: "Write by hand. Saving indexes it for later chapters." },
   chapters:   { title: "Chapters",   hint: "Everything you've saved for this novel." },
   world:      { title: "World",      hint: "The bible this novel's characters and places come from." },
+  history:    { title: "History",    hint: "The vetted record the writer may cite — and where this novel departs from it." },
   chat:       { title: "Ask",        hint: "Questions answered only from this novel's memory." },
   memory:     { title: "Memory",     hint: "What Zero-Mem has indexed, and what it retrieves." },
   settings:   { title: "Settings",   hint: "Providers, rules and skills in effect." },
@@ -234,6 +235,9 @@ async function selectNovel(slug) {
   // leaving one book's draft above another book's chapter list.
   state.chatHistory = [];
   state.contextFile = null;
+  historyRecords = [];
+  lastResearch = [];
+  $("historyStrip").hidden = true;
   resetChat();
   $("contextEditor").value = "";
   $("contextFilename").value = "";
@@ -336,6 +340,7 @@ function switchPanel(name) {
   if (name === "manuscript") autoDetectNextChapter();
   if (name === "chapters") loadChapters();
   if (name === "world") loadContextFiles();
+  if (name === "history") loadHistory();
   if (name === "memory") loadMemory();
   if (name === "settings") loadSettings();
 }
@@ -363,7 +368,7 @@ document.addEventListener("keydown", (e) => {
  * surfacing it the UI would just stop, leaving a half-written chapter and no
  * explanation.
  */
-async function readStream(res, { onToken, onSources }) {
+async function readStream(res, { onToken, onSources, onHistory, onCheck }) {
   if (!res.ok) throw new Error(await readError(res));
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -385,6 +390,8 @@ async function readStream(res, { onToken, onSources }) {
       try { parsed = JSON.parse(raw); } catch { continue; }
       if (parsed.error) { failed = parsed.error; continue; }
       if (parsed.sources && onSources) onSources(parsed.sources);
+      if (parsed.history && onHistory) onHistory(parsed.history);
+      if (parsed.history_check && onCheck) onCheck(parsed.history_check);
       if (parsed.token && onToken) onToken(parsed.token);
     }
   }
@@ -427,6 +434,7 @@ function generatePayload(stream) {
     // every default-length chapter off mid-sentence.
     provider: $("provider").value || null,
     model: $("model").value || null,
+    scene_date: $("sceneDate").value.trim() || null,
     stream,
   };
 }
@@ -454,6 +462,10 @@ $("btnGenerate").addEventListener("click", async () => {
     draftEditor.innerText = data.content;
     updateDraftCount();
     revealDraftActions();
+    if (data.history) {
+      lastResearch = data.history.records || [];
+      renderHistoryStrip({ records: lastResearch, check: data.history.check });
+    }
     toast("Draft ready.", "success");
   } catch (err) {
     toast(err.message, "error");
@@ -474,7 +486,13 @@ $("btnStream").addEventListener("click", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ novel: state.novel, ...payload }),
     });
+    let check = null;
     await readStream(res, {
+      onHistory: (h) => {
+        lastResearch = h.records || [];
+        renderHistoryStrip({ records: lastResearch, check: null });
+      },
+      onCheck: (c) => { check = c; },
       onToken: (t) => {
         draftEditor.innerText += t;
         draftEditor.scrollTop = draftEditor.scrollHeight;
@@ -482,7 +500,12 @@ $("btnStream").addEventListener("click", async () => {
       },
     });
     revealDraftActions();
-    toast("Draft ready.", "success");
+    renderHistoryStrip({ records: lastResearch, check });
+    if (check && !check.ok) {
+      toast(`Draft ready — ${check.findings.length} historical flag${check.findings.length === 1 ? "" : "s"}.`, "info");
+    } else {
+      toast("Draft ready.", "success");
+    }
   } catch (err) {
     toast(err.message, "error");
   } finally {
@@ -831,6 +854,192 @@ $("btnReingest").addEventListener("click", async () => {
 });
 
 /* ============================================================
+   History — the vetted corpus and the guardrail it powers
+   ============================================================ */
+
+const ICON_SCROLL = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3.5 2"/></svg>`;
+
+let historyRecords = [];
+
+function renderHistoryList() {
+  const container = $("historyList");
+  const needle = $("historyFilter").value.trim().toLowerCase();
+  const rows = historyRecords.filter((r) => {
+    if (!needle) return true;
+    return (r.claim + " " + r.entities.join(" ") + " " + r.sources.join(" ") + " " + r.id)
+      .toLowerCase().includes(needle);
+  });
+
+  if (!rows.length) {
+    container.innerHTML = emptyState(ICON_SCROLL,
+      historyRecords.length ? "Nothing matches" : "No records yet",
+      historyRecords.length
+        ? "No vetted record matches that filter."
+        : "Add YAML files to history/ or novels/<id>/history/. Every record needs a source.");
+    return;
+  }
+
+  container.innerHTML = rows.map((r) => `
+    <div class="row row-static">
+      <div class="row-body">
+        <div class="rec-head">
+          <span class="rec-date">${escapeHtml(r.date)}</span>
+          <span class="row-title">${escapeHtml(r.claim)}</span>
+        </div>
+        <div class="rec-meta">
+          ${r.diverges ? `<span class="tag diverge">rẽ nhánh</span>` : ""}
+          ${r.confidence !== "attested" ? `<span class="tag warn">${escapeHtml(r.confidence)}</span>` : ""}
+          <span class="tag ${r.scope}">${escapeHtml(r.scope)}</span>
+          <span class="rec-src">${escapeHtml(r.sources.join(" · "))}</span>
+        </div>
+        ${r.diverges ? `<p class="rec-note">${escapeHtml(r.divergence_note)}</p>` : ""}
+      </div>
+    </div>`).join("");
+}
+
+async function loadHistory() {
+  try {
+    const data = await apiGet("/api/history");
+    historyRecords = data.records;
+    $("navHistoryCount").textContent = data.corpus_size;
+    $("navHistoryCount").hidden = !data.corpus_size;
+    const diverging = historyRecords.filter((r) => r.diverges).length;
+    $("historyPaths").textContent =
+      `${data.corpus_size} records · ${diverging} declared divergence${diverging === 1 ? "" : "s"}` +
+      ` · history/ + novels/${data.novel}/history/`;
+    renderHistoryList();
+  } catch (err) {
+    $("historyList").innerHTML = emptyState(ICON_SCROLL, "Corpus rejected", err.message);
+    toast(err.message, "error");
+  }
+}
+
+$("historyFilter").addEventListener("input", renderHistoryList);
+
+$("btnHistoryReload").addEventListener("click", async () => {
+  try {
+    const data = await apiPost("/api/history/reload", {});
+    toast(`Reloaded ${data.corpus_size} records.`, "success");
+    await loadHistory();
+  } catch (err) {
+    toast(err.message, "error");
+  }
+});
+
+/* ---- the guardrail strip under a draft ---- */
+
+function renderHistoryStrip({ records, check }) {
+  const strip = $("historyStrip");
+  const findings = (check && check.findings) || [];
+  const hasAnything = (records && records.length) || findings.length;
+  strip.hidden = !hasAnything;
+  if (!hasAnything) return;
+
+  const conflicts = findings.filter((f) => f.kind === "conflict").length;
+  const anachronisms = findings.length - conflicts;
+  strip.classList.toggle("has-findings", findings.length > 0);
+
+  $("historySummary").textContent = findings.length
+    ? `${findings.length} historical ${findings.length === 1 ? "flag" : "flags"}` +
+      (conflicts ? ` · ${conflicts} conflict${conflicts === 1 ? "" : "s"}` : "") +
+      (anachronisms ? ` · ${anachronisms} anachronism${anachronisms === 1 ? "" : "s"}` : "")
+    : `History checked · nothing contradicts the record`;
+
+  $("historyFindings").innerHTML = findings.length
+    ? findings.map((f, i) => `
+      <div class="finding ${escapeHtml(f.kind)}">
+        <div class="finding-head">
+          <span class="finding-n">${i + 1}</span>
+          <span class="finding-msg">${escapeHtml(f.message)}</span>
+        </div>
+        ${f.claim ? `<div class="finding-rec">Ghi chép: ${escapeHtml(f.claim)}</div>` : ""}
+        ${f.sources && f.sources.length
+          ? `<div class="finding-src">nguồn: ${escapeHtml(f.sources.join("; "))}</div>` : ""}
+        <div class="finding-actions">
+          <button class="chip-btn" data-fix="${i}" type="button">Rewrite this</button>
+          ${f.record_id
+            ? `<button class="chip-btn" data-accept="${escapeHtml(f.record_id)}" type="button">Accept as divergence</button>`
+            : ""}
+        </div>
+      </div>`).join("")
+    : `<p class="all-clear">Nothing in this draft contradicts the vetted record for its date.</p>`;
+
+  const sources = records || [];
+  $("historySourcesWrap").hidden = !sources.length;
+  $("historySourceCount").textContent = sources.length;
+  $("historySources").innerHTML = sources.map((r) => `
+    <div class="ref">
+      <div class="ref-head"><b>${escapeHtml(r.date)}</b> ${escapeHtml(r.claim)}</div>
+      <div class="ref-src">${escapeHtml(r.sources.join("; "))}</div>
+      ${r.diverges ? `<div class="ref-div">rẽ nhánh: ${escapeHtml(r.divergence_note)}</div>` : ""}
+    </div>`).join("");
+
+  // Rewrite: hand the conflict back as revision feedback rather than editing
+  // the prose ourselves. The draft is the author's; we only annotate it.
+  $("historyFindings").querySelectorAll("[data-fix]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const f = findings[parseInt(btn.dataset.fix, 10)];
+      $("feedbackSection").hidden = false;
+      const box = $("feedbackText");
+      const line = `Sửa lỗi lịch sử: ${f.message}` +
+        (f.sources && f.sources.length ? ` (nguồn: ${f.sources.join("; ")})` : "");
+      box.value = box.value ? `${box.value}\n${line}` : line;
+      box.focus();
+      toast("Added to revision notes.", "info");
+    });
+  });
+
+  $("historyFindings").querySelectorAll("[data-accept]").forEach((btn) => {
+    btn.addEventListener("click", () => acceptDivergence(btn.dataset.accept));
+  });
+}
+
+async function acceptDivergence(recordId) {
+  const record = historyRecords.find((r) => r.id === recordId);
+  await dialog({
+    title: "Accept as a divergence",
+    confirmLabel: "Got it",
+    body: `<p>Marking a record as a deliberate departure is an edit to your corpus,
+           so it happens in the file rather than silently here.</p>
+           <p>Add to <code>novels/${escapeHtml(state.novel)}/history/divergences.yaml</code>:</p>
+           <div class="dialog-detail"><code>- id: ${escapeHtml(recordId)}<br>
+           &nbsp;&nbsp;claim: "${escapeHtml((record && record.claim) || "")}"<br>
+           &nbsp;&nbsp;date: ${escapeHtml((record && record.date) || "")}<br>
+           &nbsp;&nbsp;sources: [${escapeHtml(((record && record.sources) || []).map(s => `"${s}"`).join(", "))}]<br>
+           &nbsp;&nbsp;diverges: true<br>
+           &nbsp;&nbsp;divergence_note: "…what happens instead…"</code></div>
+           <p>Then hit <b>Reload from disk</b> in the History tab. The checker will
+           stop flagging it, and the writer will be told to follow your version
+           rather than the record.</p>`,
+  });
+}
+
+$("btnHistoryToggle").addEventListener("click", () => {
+  const body = $("historyBody");
+  body.hidden = !body.hidden;
+  $("btnHistoryToggle").setAttribute("aria-expanded", String(!body.hidden));
+});
+
+$("btnRecheck").addEventListener("click", async () => {
+  const text = draftEditor.innerText.trim();
+  if (!text) { toast("There's no draft to check.", "error"); return; }
+  try {
+    const check = await apiPost("/api/history/check", {
+      text, scene_date: $("sceneDate").value.trim() || null,
+    });
+    renderHistoryStrip({ records: lastResearch, check });
+    $("historyBody").hidden = false;
+    $("btnHistoryToggle").setAttribute("aria-expanded", "true");
+    toast(check.ok ? "No historical conflicts." : `${check.findings.length} flags.`,
+          check.ok ? "success" : "info");
+  } catch (err) {
+    toast(err.message, "error");
+  }
+});
+
+let lastResearch = [];
+
+/* ============================================================
    Memory
    ============================================================ */
 
@@ -1099,6 +1308,7 @@ async function refreshAll() {
   const name = active.id.replace("panel-", "");
   if (name === "chapters") await loadChapters();
   if (name === "world") await loadContextFiles();
+  if (name === "history") await loadHistory();
   if (name === "memory") await loadMemory();
   if (name === "settings") await loadSettings();
   if (name === "manuscript") await autoDetectNextChapter();
@@ -1110,6 +1320,7 @@ async function refreshAll() {
     await loadNovels();
     resetChat();               // the welcome line names the novel
     await refreshMemStat();
+    await loadHistory();
   } catch (err) {
     toast(`Could not reach the server: ${err.message}`, "error");
   }
