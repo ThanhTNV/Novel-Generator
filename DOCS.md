@@ -168,6 +168,7 @@ it. So records carry an explicit split:
 | `diverges` + `divergence_note` | This novel departs here **on purpose**. Never flagged, and the model is told to follow your version instead of the record. |
 | `ongoing` | Began then and continued. An office founded in 1792 still stands in 1795; only a year *before* it started is wrong. Inferred from `until`. |
 | `introduces` | Things this record brings into existence. Only these can raise a "does not exist yet" flag — opt-in, because inferring it reported Phú Xuân as an anachronism when an emperor died there. |
+| `anchors` | Terms that pin **this event** to **this date** — usually where it happened, not who was there. Only these can raise a "wrong year" flag; falls back to `introduces`. Inferring them flagged a correct 1792 scene for naming `quân Thanh`, because the Qing army appeared in one record and so looked distinctive. Armies, dynasties and people persist across events and date nothing. |
 
 ### Layout
 
@@ -207,6 +208,11 @@ Findings are **annotations, never edits**. Each cites the record and its source
 and offers two moves: *Rewrite this* appends the conflict to your revision
 notes, or *Accept as divergence* shows the YAML to add. Nothing is silently
 rewritten, and a deliberate departure is never blocked.
+
+Accepting a divergence replaces the record wholesale, so copy **every** field
+across — the UI generates the full YAML for you. An override that drops
+`entities` or `anchors` leaves the record unfindable by name and unable to date
+itself.
 
 > The shipped `history/tay-son.yaml` was drafted by an assistant from general
 > knowledge of the period. Check it against the sources before trusting it,

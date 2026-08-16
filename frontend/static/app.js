@@ -995,23 +995,51 @@ function renderHistoryStrip({ records, check }) {
 }
 
 async function acceptDivergence(recordId) {
+  // The corpus must be loaded, or the snippet below would omit fields and
+  // silently downgrade the record it is meant to override.
+  if (!historyRecords.length) {
+    try { await loadHistory(); } catch { /* handled below */ }
+  }
   const record = historyRecords.find((r) => r.id === recordId);
+  if (!record) {
+    toast("Open the History tab once so the corpus is loaded, then retry.", "error");
+    return;
+  }
+
+  // An override replaces the record wholesale, so every field has to be
+  // carried across. An earlier version of this dialog emitted only id, claim,
+  // date and sources — pasting it dropped `entities` and `anchors`, which made
+  // the record unfindable by name and stopped it anchoring its own date.
+  const yaml = [
+    `- id: ${record.id}`,
+    `  claim: "${record.claim.replace(/"/g, "'")}"`,
+    `  date: ${record.date_start || record.date}`,
+    record.entities.length ? `  entities: [${record.entities.map((e) => `"${e}"`).join(", ")}]` : null,
+    record.anchors.length ? `  anchors: [${record.anchors.map((e) => `"${e}"`).join(", ")}]` : null,
+    record.introduces.length ? `  introduces: [${record.introduces.map((e) => `"${e}"`).join(", ")}]` : null,
+    record.ongoing ? `  ongoing: true` : null,
+    `  confidence: ${record.confidence}`,
+    `  sources: [${record.sources.map((s) => `"${s}"`).join(", ")}]`,
+    `  diverges: true`,
+    `  divergence_note: "…điều gì xảy ra thay vào đó…"`,
+  ].filter(Boolean).join("\n");
+
   await dialog({
     title: "Accept as a divergence",
-    confirmLabel: "Got it",
-    body: `<p>Marking a record as a deliberate departure is an edit to your corpus,
-           so it happens in the file rather than silently here.</p>
-           <p>Add to <code>novels/${escapeHtml(state.novel)}/history/divergences.yaml</code>:</p>
-           <div class="dialog-detail"><code>- id: ${escapeHtml(recordId)}<br>
-           &nbsp;&nbsp;claim: "${escapeHtml((record && record.claim) || "")}"<br>
-           &nbsp;&nbsp;date: ${escapeHtml((record && record.date) || "")}<br>
-           &nbsp;&nbsp;sources: [${escapeHtml(((record && record.sources) || []).map(s => `"${s}"`).join(", "))}]<br>
-           &nbsp;&nbsp;diverges: true<br>
-           &nbsp;&nbsp;divergence_note: "…what happens instead…"</code></div>
-           <p>Then hit <b>Reload from disk</b> in the History tab. The checker will
-           stop flagging it, and the writer will be told to follow your version
-           rather than the record.</p>`,
+    confirmLabel: "Copied",
+    body: `<p>This marks the record as a departure your story makes on purpose.
+           The checker stops flagging it, and the writer is told to follow your
+           version instead of the record — so only do it when you mean to
+           contradict history, not to silence a flag you disagree with.</p>
+           <p>Paste into <code>novels/${escapeHtml(state.novel)}/history/divergences.yaml</code>,
+           then hit <b>Reload from disk</b> in the History tab:</p>
+           <pre class="yaml-snippet">${escapeHtml(yaml)}</pre>`,
   });
+
+  try {
+    await navigator.clipboard.writeText(yaml);
+    toast("YAML copied to clipboard.", "success");
+  } catch { /* the snippet is on screen either way */ }
 }
 
 $("btnHistoryToggle").addEventListener("click", () => {

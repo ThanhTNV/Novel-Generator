@@ -50,6 +50,26 @@ ANACHRONISMS: List[Tuple[int, Tuple[str, ...], str]] = [
 
 _YEAR_IN_TEXT = re.compile(r"\b(1[0-9]{3}|20[0-9]{2})\b")
 
+_TERM_PATTERNS: Dict[str, Any] = {}
+
+
+def _find_term(folded_text: str, key: str) -> int:
+    """
+    Offset of ``key`` in ``folded_text`` as a whole word, or -1.
+
+    Plain substring matching is unusable once accents are folded: "Đống Đa"
+    becomes "dong da", which is a prefix of "đóng dày" -> "dong day", so a
+    sentence about troops massed thickly at the border was reported as
+    contradicting a battle. Folding collapses a lot of Vietnamese onto the same
+    letters, which makes boundaries load-bearing rather than pedantic.
+    """
+    pattern = _TERM_PATTERNS.get(key)
+    if pattern is None:
+        pattern = re.compile(r"(?<!\w)%s(?!\w)" % re.escape(key), re.UNICODE)
+        _TERM_PATTERNS[key] = pattern
+    match = pattern.search(folded_text)
+    return match.start() if match else -1
+
 
 class HistoryIndex(object):
     """A loaded corpus: searchable, and able to check a draft against itself."""
@@ -63,25 +83,24 @@ class HistoryIndex(object):
             self._order.append(record.id)
             self._bm25.add(i, self._indexable(record))
 
-        # Which entities can anchor a date. A name tied to several dated
-        # records cannot: "Quang Trung" spans 1753-1792, so a year written near
-        # it proves nothing about which event the sentence means, and checking
-        # it against every record he appears in flags correct prose as wrong.
-        owners: Dict[str, set] = {}
+        # Which terms may pin a record to a date. Declared, not inferred.
+        #
+        # Inferring them ("an entity belonging to exactly one dated record")
+        # looked reasonable and was wrong twice over. "Quang Trung" spans
+        # 1753-1792, so a year near his name dates nothing — that one the
+        # uniqueness rule caught. But "quân Thanh" appeared in exactly one
+        # record and so passed the rule, and a perfectly correct 1792 scene
+        # naming the Qing army was flagged against the 1789 battle. Armies,
+        # dynasties and people persist across events; only a place or a name
+        # specific to the event itself pins its date.
+        self._anchors: Dict[str, Tuple[str, str]] = {}
         for record in self.records:
             if record.start is None:
                 continue
-            for entity in record.entities:
-                key = _canonical(entity)
-                if len(key) >= 4:
-                    owners.setdefault(key, set()).add(record.id)
-        surfaces: Dict[str, str] = {}
-        for record in self.records:
-            for entity in record.entities:
-                surfaces.setdefault(_canonical(entity), entity)
-        self._anchors: Dict[str, Tuple[str, str]] = dict(
-            (key, (next(iter(ids)), surfaces.get(key, key)))
-            for key, ids in owners.items() if len(ids) == 1)
+            for term in (record.anchors or record.introduces):
+                key = _canonical(term)
+                if len(key) >= 3:
+                    self._anchors.setdefault(key, (record.id, term))
 
     def __len__(self) -> int:
         return len(self.records)
@@ -217,7 +236,7 @@ class HistoryIndex(object):
                 continue
             for term in terms:
                 key = _canonical(term)
-                idx = folded.find(key)
+                idx = _find_term(folded, key)
                 if idx == -1:
                     continue
                 out.append({
@@ -254,7 +273,7 @@ class HistoryIndex(object):
                 key = _canonical(name)
                 if len(key) < 3:
                     continue
-                at = folded.find(key)
+                at = _find_term(folded, key)
                 if at == -1:
                     continue
                 out.append({
@@ -292,7 +311,7 @@ class HistoryIndex(object):
             record = self.by_id[record_id]
             if not record.locked or record.start is None or record_id in flagged:
                 continue
-            at = folded.find(key)
+            at = _find_term(folded, key)
             if at == -1:
                 continue
             near = [(pos, y) for pos, y in years if abs(pos - at) <= 160]

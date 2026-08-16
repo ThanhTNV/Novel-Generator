@@ -39,6 +39,7 @@ records:
     claim: "Quang Trung đại phá quân Thanh tại Ngọc Hồi – Đống Đa"
     date: 1789-01-30
     entities: ["Quang Trung", "Ngọc Hồi", "Đống Đa", "quân Thanh"]
+    anchors: ["Ngọc Hồi", "Đống Đa"]
     confidence: attested
     sources: ["Hoàng Lê nhất thống chí, hồi 14"]
 
@@ -67,14 +68,15 @@ records:
 
 DIVERGENCE = textwrap.dedent(u"""
 records:
-  - id: quang-trung-death
-    claim: "Quang Trung băng hà tại Phú Xuân"
-    date: 1792-09-16
-    entities: ["Quang Trung", "Phú Xuân"]
+  - id: ngoc-hoi
+    claim: "Quang Trung đại phá quân Thanh tại Ngọc Hồi – Đống Đa"
+    date: 1789-01-30
+    entities: ["Quang Trung", "Ngọc Hồi", "Đống Đa", "quân Thanh"]
+    anchors: ["Ngọc Hồi", "Đống Đa"]
     confidence: attested
-    sources: ["Đại Nam thực lục"]
+    sources: ["Hoàng Lê nhất thống chí, hồi 14"]
     diverges: true
-    divergence_note: "Trong truyện ông sống sót và trị vì tới 1802."
+    divergence_note: "Trong truyện chiến dịch bị hoãn tới cuối 1792."
 """)
 
 
@@ -143,7 +145,7 @@ records:
 
 def test_a_novel_may_override_a_project_record_by_id(alt):
     """That is how a novel declares where it departs from the shared record."""
-    record = alt.by_id["quang-trung-death"]
+    record = alt.by_id["ngoc-hoi"]
     assert record.diverges is True
     assert record.scope == "novel" or record.divergence_note
     assert len(alt) == len(_index(CORPUS)), "override must not duplicate the record"
@@ -225,9 +227,9 @@ def test_divergence_is_flagged_loudly_in_what_the_model_reads(alt):
     writes the emperor's death into a book whose premise is that he lived.
     """
     from backend.history import _render
-    text = _render(alt.search(u"Quang Trung băng hà"))
+    text = _render(alt.search(u"Ngọc Hồi Đống Đa"))
     assert u"RẼ NHÁNH" in text
-    assert u"sống sót" in text
+    assert u"hoãn" in text
     assert u"KHÔNG theo sử liệu gốc" in text
 
 
@@ -278,16 +280,16 @@ def test_contradicting_a_declared_divergence_is_never_flagged(alt):
     flagged that would be switched off within a day, taking the real warnings
     with it.
     """
-    draft = u"Năm 1795, Quang Trung vẫn ngự tại Phú Xuân, tay còn cầm bản tấu."
-    result = alt.check(draft, scene_date="1795")
-    assert [f for f in result["findings"] if f.get("record_id") == "quang-trung-death"] == []
+    draft = u"Cuối năm 1792, quân Tây Sơn mới tiến vào Ngọc Hồi."
+    result = alt.check(draft, scene_date="1792")
+    assert [f for f in result["findings"] if f.get("record_id") == "ngoc-hoi"] == []
 
 
 def test_the_same_draft_conflicts_when_the_divergence_is_not_declared(index):
     """Mirror of the test above: without the declaration it IS a conflict."""
-    draft = u"Năm 1795, Quang Trung vẫn ngự tại Phú Xuân."
-    result = index.check(draft, scene_date="1795")
-    assert [f for f in result["findings"] if f.get("record_id") == "quang-trung-death"]
+    draft = u"Cuối năm 1792, quân Tây Sơn mới tiến vào Ngọc Hồi."
+    result = index.check(draft, scene_date="1792")
+    assert [f for f in result["findings"] if f.get("record_id") == "ngoc-hoi"]
 
 
 def test_a_person_alive_in_the_scene_is_not_an_anachronism(index):
@@ -408,3 +410,31 @@ def test_the_real_project_corpus_loads_and_is_fully_cited():
         assert record.sources, record.id
         assert record.claim.strip()
         assert record.confidence in ("attested", "probable", "disputed")
+
+
+def test_a_participant_does_not_pin_a_date(index):
+    """
+    The bug this exists for: "quân Thanh" appeared in exactly one record, so a
+    uniqueness heuristic treated it as pinning the 1789 battle — and a correct
+    1792 diplomacy scene that merely named the Qing army was reported as
+    contradicting Ngọc Hồi. Armies, dynasties and people persist across events
+    and date nothing; only a term the record declares in `anchors` may.
+    """
+    draft = (u"Mùa thu năm 1792, sứ đoàn trở về. Quân Thanh vẫn đóng dày ở "
+             u"biên giới, nhưng thuế cửa khẩu đã nói thay lời đe dọa.")
+    result = index.check(draft, scene_date="1792")
+    assert result["ok"], [f["message"] for f in result["findings"]]
+
+
+def test_the_battle_site_still_pins_the_date(index):
+    """Narrowing must not disarm the check: a place named for the engagement does."""
+    result = index.check(u"Năm 1787, quân Tây Sơn tràn vào Ngọc Hồi.", scene_date="1789")
+    assert [f for f in result["findings"] if f.get("record_id") == "ngoc-hoi"]
+
+
+def test_anchors_fall_back_to_introduces():
+    """A thing's founding record pins its own date without repeating the list."""
+    idx = _index(CORPUS)
+    assert idx.by_id["vien-sung-chinh"].anchors == []
+    assert idx.by_id["vien-sung-chinh"].introduces == [u"Viện Sùng Chính"]
+    assert not idx.check(u"Năm 1780, Khải ghé Viện Sùng Chính.", scene_date="1780")["ok"]

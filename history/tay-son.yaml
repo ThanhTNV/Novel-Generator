@@ -39,6 +39,7 @@ records:
       - "Hoàng Lê nhất thống chí"
 
   - id: rach-gam-xoai-mut
+    anchors: ["Rạch Gầm", "Xoài Mút"]
     claim: "Nguyễn Huệ đánh tan quân Xiêm tại Rạch Gầm – Xoài Mút"
     date: 1785-01
     entities: ["Nguyễn Huệ", "Rạch Gầm", "Xoài Mút", "quân Xiêm", "Nguyễn Ánh"]
@@ -82,6 +83,7 @@ records:
       - "Hoàng Lê nhất thống chí, hồi 14"
 
   - id: ngoc-hoi-dong-da
+    anchors: ["Ngọc Hồi", "Đống Đa"]
     claim: "Quang Trung đại phá quân Thanh tại Ngọc Hồi – Đống Đa, giải phóng Thăng Long"
     date: 1789-01-30
     entities: ["Quang Trung", "Nguyễn Huệ", "Ngọc Hồi", "Đống Đa", "Thăng Long", "quân Thanh", "Tôn Sĩ Nghị"]

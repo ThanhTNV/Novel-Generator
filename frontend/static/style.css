@@ -976,3 +976,11 @@ input[type="range"]::-moz-range-thumb {
 .ref-head b { font-family: var(--mono); font-size: .74rem; color: var(--accent); margin-right: .4rem; }
 .ref-src { font-size: .72rem; color: var(--ink-3); font-style: italic; }
 .ref-div { font-size: .74rem; color: var(--warn); margin-top: .1rem; }
+
+.yaml-snippet {
+  font-family: var(--mono); font-size: .74rem; line-height: 1.6;
+  background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: var(--r-sm); padding: .7rem .8rem;
+  overflow-x: auto; white-space: pre; color: var(--ink-2);
+  max-height: 16rem; overflow-y: auto;
+}

@@ -93,7 +93,7 @@ class HistoryRecord(object):
 
     __slots__ = ("id", "claim", "start", "end", "entities", "tags", "confidence",
                  "sources", "locked", "diverges", "divergence_note", "note",
-                 "ongoing", "introduces", "scope", "origin")
+                 "ongoing", "introduces", "anchors", "scope", "origin")
 
     def __init__(self, **kw):
         for k in self.__slots__:
@@ -120,6 +120,7 @@ class HistoryRecord(object):
             "date_end": format_date(self.end),
             "entities": list(self.entities),
             "introduces": list(self.introduces),
+            "anchors": list(self.anchors),
             "tags": list(self.tags),
             "confidence": self.confidence,
             "sources": list(self.sources),
@@ -219,6 +220,14 @@ def build_record(raw: Dict[str, Any], scope: str, origin: str) -> HistoryRecord:
         # it made the checker report Phú Xuân as an anachronism because an
         # emperor happened to die there. A guardrail may miss; it must not lie.
         introduces=_as_list(raw.get("introduces"), "introduces", rid),
+        # Terms that pin THIS event to THIS date — usually where it happened,
+        # not who was there. Only these can raise a "wrong year" flag.
+        # Inferring them from `entities` flagged a 1792 scene for naming
+        # "quân Thanh", because the Qing army appeared in exactly one record
+        # and so looked distinctive; armies, dynasties and people persist
+        # across events and date nothing. Falls back to `introduces`, since a
+        # thing's founding record does pin its own date.
+        anchors=_as_list(raw.get("anchors"), "anchors", rid),
         tags=_as_list(raw.get("tags"), "tags", rid),
         confidence=confidence,
         sources=sources,
