@@ -58,13 +58,32 @@ python main.py
 not running every tool returns
 `{"error": "Novel Generator app is not running at <url>. Start it with: python main.py"}`.
 
-### Register with Claude Code
+### Register with Claude Code — nothing to run
+
+The repo ships a project-scoped `.mcp.json` at the root, so Claude Code
+(including the Desktop app's **Code** tab) discovers the server on its own.
+Open the project and, the first time a session starts, approve
+`novel-generator` when Claude Code asks. That is the whole registration; the
+`claude` CLI is not needed and is often not on PATH when Claude Code runs
+inside the Desktop app.
+
+The file uses paths relative to the repo root, which is documented behaviour
+for `.mcp.json`. On Linux or macOS change the `command` from
+`mcp_server/.venv/Scripts/python.exe` to `mcp_server/.venv/bin/python`.
+
+If you do have the CLI, the equivalent is:
 
 ```
 claude mcp add novel-generator -- D:/RiSet/Novel-Generator/mcp_server/.venv/Scripts/python.exe D:/RiSet/Novel-Generator/mcp_server/server.py
 ```
 
-### Register with Claude Desktop
+To revoke the approval later: `claude mcp reset-project-choices`.
+
+### Register with the Claude Desktop *chat* app
+
+The chat side of the Desktop app does not read `.mcp.json`. It uses
+`%APPDATA%\Claude\claude_desktop_config.json` (Settings → Developer → Edit
+Config), which **requires absolute paths**. Restart the app fully after saving.
 
 Add to `claude_desktop_config.json`:
 

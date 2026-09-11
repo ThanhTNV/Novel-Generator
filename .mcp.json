@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "novel-generator": {
+      "command": "mcp_server/.venv/Scripts/python.exe",
+      "args": ["mcp_server/server.py"],
+      "env": {
+        "NOVELGEN_URL": "http://127.0.0.1:8000"
+      }
+    }
+  }
+}
