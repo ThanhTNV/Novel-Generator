@@ -1,0 +1,12 @@
+# Runtime for mcp_server/ only. The app keeps its own requirements.txt at the
+# repo root and stays on Python 3.9; the mcp SDK needs 3.10+, hence the
+# separate venv (see README.md).
+#
+# 1.10 is the floor because the tools return dict[str, Any] as structured
+# content: CallToolResult.structuredContent and FastMCP.call_tool's
+# (unstructured, structured) tuple both first appeared in 1.10.0. On 1.9.x
+# the test suite and smoke.py crash instead of reporting.
+mcp>=1.10,<2
+httpx>=0.27
+
+# Running mcp_server/tests needs more — see requirements-dev.txt.

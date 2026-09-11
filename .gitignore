@@ -34,3 +34,8 @@ data/*.db-wal
 # These are the author's work, not the project's.
 novels/*
 !novels/.gitkeep
+
+# The MCP server runs in its own Python 3.10+ venv (the app is pinned to 3.9,
+# and the mcp SDK requires 3.10). The venv is machine-local.
+mcp_server/.venv/
+.pytest_cache/

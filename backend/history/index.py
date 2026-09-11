@@ -350,9 +350,15 @@ class HistoryIndex(object):
 
 def _read_yaml(path: Path):
     import yaml
+    text = path.read_text(encoding="utf-8")
     try:
-        return yaml.safe_load(path.read_text(encoding="utf-8"))
-    except yaml.YAMLError as exc:
+        return yaml.safe_load(text)
+    except Exception as exc:  # noqa: BLE001 - see below
+        # Not only YAMLError. PyYAML builds an unquoted ``date: 1789-02-30``
+        # with datetime.date and lets its plain ValueError out (an explicit
+        # ``!!timestamp`` escapes as AttributeError). Every guard upstream —
+        # /api/history's 422, the state snapshot's ``history_error`` — knows
+        # only HistoryError, so anything else here was a 500 for the novel.
         raise HistoryError("%s: invalid YAML — %s" % (path.name, exc))
 
 

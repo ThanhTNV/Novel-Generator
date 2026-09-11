@@ -597,10 +597,16 @@ $("btnFinalize").addEventListener("click", async () => {
       chapter_number: number,
       title: $("chapterTitle").value.trim(),
       content,
+      // The date the draft was checked against is the date it is filed
+      // under, so an agent re-checking the chapter later asks history the
+      // same question the writer did.
+      scene_date: $("sceneDate").value.trim() || null,
+      summary: $("chapterSummary").value.trim(),
     });
     toast(`Chapter ${number} saved and indexed (${data.chunks_ingested} segments).`, "success");
     $("chapterNumber").value = number + 1;
     $("chapterTitle").value = "";
+    $("chapterSummary").value = "";
     await refreshCounts();
   } catch (err) {
     toast(err.message, "error");
@@ -653,10 +659,18 @@ $("btnSaveManualChapter").addEventListener("click", async () => {
 
   busy(true, "Saving…");
   try {
-    const data = await apiPost("/api/chapters/save", { chapter_number: number, title, content });
+    const data = await apiPost("/api/chapters/save", {
+      chapter_number: number, title, content,
+      scene_date: $("writeSceneDate").value.trim() || null,
+      summary: $("writeChapterSummary").value.trim(),
+    });
     toast(`Chapter ${number} saved (${data.chunks_ingested} segments indexed).`, "success");
     $("writeChapterNumber").value = number + 1;
     $("writeChapterTitle").value = "";
+    // Cleared with the title: a date left over from the last chapter would
+    // silently file the next one under the wrong point in the story.
+    $("writeSceneDate").value = "";
+    $("writeChapterSummary").value = "";
     writeEditor.innerText = "";
     updateWriteStats();
     await refreshCounts();

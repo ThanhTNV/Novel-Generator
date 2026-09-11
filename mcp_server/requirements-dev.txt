@@ -1,0 +1,7 @@
+# What mcp_server/tests needs on top of the runtime. A venv built from
+# requirements.txt alone has no pytest, and the README's test command then
+# fails with "No module named pytest" before collecting a single test.
+# The tests drive coroutines with asyncio.run, so pytest-asyncio is not
+# required.
+-r requirements.txt
+pytest>=8

@@ -10,8 +10,9 @@ on two books at once without one silently reassigning the other's scope.
 
 import json
 import re
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,8 +20,8 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from backend import history, novels
-from backend.agent import NovelAgent
+from backend import chapters, history, novels
+from backend.agent import NovelAgent, compose_retrieval_query
 from backend.config import ROOT_DIR, settings
 from backend.rag_pipeline import (
     clear_collection,
@@ -218,6 +219,20 @@ class SaveChapterRequest(NovelScoped):
     chapter_number: int
     title: str = ""
     content: str
+    # Front matter. The scene date is validated the same way the history
+    # corpus validates its own, so a chapter and the records it is checked
+    # against can never disagree about what a date looks like.
+    scene_date: Optional[str] = None
+    arc: Optional[int] = None
+    summary: str = ""
+
+
+class MemoryContextRequest(NovelScoped):
+    query: str
+    characters: List[str] = Field(default_factory=list)
+    locations: List[str] = Field(default_factory=list)
+    max_tokens: Optional[int] = None
+    top_k: Optional[int] = None
 
 
 class CreateNovelRequest(BaseModel):
@@ -489,6 +504,26 @@ async def memory_sources(novel: Optional[str] = Query(None)):
     return {"sources": get_engine(_novel(novel)).store.sources()}
 
 
+@app.post("/api/memory/context")
+async def memory_context(req: MemoryContextRequest):
+    """
+    Exactly the context block the writer would be handed for these inputs.
+
+    Same query composition, same budget, same top_k floor as
+    ``NovelAgent.gather_context`` — by calling the same function, not by
+    copying it — so an agent reviewing "what did the writer know" sees the
+    real thing rather than a near miss.
+    """
+    workspace = _novel(req.novel)
+    result = get_engine(workspace).build_context(
+        query=compose_retrieval_query(req.query, req.characters, req.locations),
+        max_tokens=req.max_tokens or settings.max_context_tokens,
+        top_k=max(req.top_k or settings.default_top_k, 8),
+    )
+    result["novel"] = workspace.slug
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Context files — the world bible, per novel
 # ---------------------------------------------------------------------------
@@ -618,45 +653,102 @@ async def history_reload(req: Optional[NovelScoped] = None):
 # Chapters
 # ---------------------------------------------------------------------------
 
+def _chapter_number(filename: str, meta: dict) -> Optional[int]:
+    """
+    Filename first, front matter second. The filename is what orders the
+    manuscript on disk and what ``delete`` addresses, so a hand-edited
+    ``chapter:`` that disagrees with it must not move the chapter.
+    """
+    number = chapters.chapter_number(filename)
+    return number if number is not None else chapters.as_int(meta.get("chapter"))
+
+
+def _chapter_item(path: Path, meta: dict, body: str, size: int) -> dict:
+    """One row of ``GET /api/chapters``, from a parsed file."""
+    number = _chapter_number(path.name, meta)
+    # The same normaliser the read endpoint uses, so a hand-edited value the
+    # list can show is never one the read then refuses (a !!binary title).
+    title = chapters.as_text(meta.get("title")).strip() \
+        or chapters.heading_title(body) \
+        or path.stem
+    words = chapters.as_int(meta.get("words"))
+    return {
+        "filename": path.name,
+        "number": number,
+        "title": title,
+        "words": words if words is not None else len(body.split()),
+        "size": size,
+        "scene_date": chapters.scene_date_text(meta.get("scene_date")),
+        "arc": chapters.as_int(meta.get("arc")),
+        "summary": chapters.as_text(meta.get("summary")).strip(),
+    }
+
+
+def _scan_chapters(workspace: novels.Novel) -> List[Tuple[dict, str]]:
+    """Every chapter file as ``(item, body)``, in filename order."""
+    if not workspace.chapters_dir.exists():
+        return []
+    found = []
+    for f in sorted(workspace.chapters_dir.glob(chapters.CHAPTER_GLOB)):
+        text = f.read_text(encoding="utf-8")
+        meta, body = chapters.parse_front_matter(text)
+        found.append((_chapter_item(f, meta, body, len(text)), body))
+    return found
+
+
 @app.post("/api/chapters/save")
 async def save_chapter(req: SaveChapterRequest):
     novel = _novel(req.novel)
-    novel.chapters_dir.mkdir(parents=True, exist_ok=True)
 
+    scene_date = (req.scene_date or "").strip() or None
+    if scene_date:
+        try:
+            history.parse_date(scene_date)
+        except history.HistoryError as exc:
+            raise HTTPException(
+                400, "scene_date %r is not a date the history check can use "
+                     "(%s). Use YYYY, YYYY-MM or YYYY-MM-DD." % (scene_date, exc))
+
+    novel.chapters_dir.mkdir(parents=True, exist_ok=True)
     filename = "chapter-%03d-%s.md" % (req.chapter_number, _slugify(req.title))
     filepath = novel.chapters_dir / filename
 
+    title = req.title.strip()
     header = "# Chapter %d" % req.chapter_number
-    if req.title:
-        header += ": %s" % req.title
-    filepath.write_text("%s\n\n%s" % (header, req.content), encoding="utf-8")
+    if title:
+        header += ": %s" % title
+    body = "%s\n\n%s" % (header, req.content)
 
+    meta = {
+        "chapter": req.chapter_number,
+        "title": title,
+        "scene_date": scene_date,
+        "arc": req.arc,
+        "summary": req.summary.strip(),
+        "words": len(req.content.split()),
+        "saved_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    # Absent optional fields are left out of the file rather than written as
+    # `null`: the block is meant to be hand-edited, and "scene_date: null" reads
+    # like a value someone has to fix.
+    written = dict((k, v) for k, v in meta.items() if v is not None)
+    filepath.write_text(chapters.render_chapter(written, body), encoding="utf-8")
+
+    # Only the prose is indexed. The heading and the front matter are
+    # bookkeeping; indexing them would make "saved_at" a retrievable fact.
     count = ingest_text(
         text=req.content, source=filename,
         chapter=str(req.chapter_number), novel=novel,
     )
     return {"filepath": str(filepath), "filename": filename,
-            "chunks_ingested": count, "novel": novel.slug}
+            "chunks_ingested": count, "novel": novel.slug, "meta": meta}
 
 
 @app.get("/api/chapters")
 async def list_chapters(novel: Optional[str] = Query(None)):
     workspace = _novel(novel)
-    if not workspace.chapters_dir.exists():
-        return {"chapters": [], "novel": workspace.slug}
-
-    chapters = []
-    for f in sorted(workspace.chapters_dir.glob("chapter-*.md")):
-        text = f.read_text(encoding="utf-8")
-        first_line = text.split("\n")[0] if text else f.stem
-        words = len([w for w in text.split() if w])
-        chapters.append({
-            "filename": f.name,
-            "title": first_line.lstrip("# "),
-            "size": len(text),
-            "words": words,
-        })
-    return {"chapters": chapters, "novel": workspace.slug}
+    return {"chapters": [item for item, _body in _scan_chapters(workspace)],
+            "novel": workspace.slug}
 
 
 @app.get("/api/chapters/{filename}")
@@ -665,7 +757,8 @@ async def get_chapter(filename: str, novel: Optional[str] = Query(None)):
     filepath = _safe_child(workspace.chapters_dir, filename, "chapter")
     if not filepath.is_file():
         raise HTTPException(404, "Chapter not found")
-    return {"filename": filename, "content": filepath.read_text(encoding="utf-8")}
+    meta, body = chapters.parse_front_matter(filepath.read_text(encoding="utf-8"))
+    return {"filename": filename, "content": body, "meta": chapters.clean_meta(meta)}
 
 
 @app.delete("/api/chapters/{filename}")
@@ -678,6 +771,99 @@ async def delete_chapter(filename: str, novel: Optional[str] = Query(None)):
     # Drop it from memory too, or the deleted chapter stays retrievable.
     get_engine(workspace).delete_source(filepath.name)
     return {"status": "deleted", "filename": filepath.name}
+
+
+# ---------------------------------------------------------------------------
+# Story state — the composite snapshot an agent reads first
+# ---------------------------------------------------------------------------
+
+OUTLINE_FILE = "main-story.md"
+OUTLINE_CAP = 6000
+TAIL_WORDS = 600
+
+
+@app.get("/api/novels/{slug}/state")
+async def novel_state(slug: str):
+    """
+    Everything an agent needs before proposing or reviewing a chapter, in one
+    call: the manuscript so far, where the story has reached, the outline,
+    the declared divergences, and what memory holds.
+
+    Nothing here raises for a broken corpus, a missing outline or an empty
+    manuscript — the snapshot reports the problem and carries on, because an
+    agent that cannot get the state cannot even tell the author what is wrong.
+    """
+    workspace = _novel(slug)
+    scanned = _scan_chapters(workspace)
+    items = [item for item, _body in scanned]
+
+    latest = None
+    if scanned:
+        # Highest number wins; unnumbered files sort first so they can only
+        # be "latest" when nothing numbered exists.
+        item, body = max(scanned, key=lambda pair: (
+            pair[0]["number"] if pair[0]["number"] is not None else -1,
+            pair[0]["filename"]))
+        latest = {
+            "filename": item["filename"], "number": item["number"],
+            "title": item["title"], "scene_date": item["scene_date"],
+            "arc": item["arc"], "summary": item["summary"],
+            "tail": chapters.tail_words(body, TAIL_WORDS),
+        }
+
+    # The date the story has reached: the last dated chapter *by number*, not
+    # the greatest date — a flashback chapter must not advance the clock.
+    latest_scene_date = None
+    for item in sorted((i for i in items if i["number"] is not None),
+                       key=lambda i: i["number"]):
+        if item["scene_date"]:
+            latest_scene_date = item["scene_date"]
+
+    outline = ""
+    outline_path = workspace.context_dir / OUTLINE_FILE
+    if outline_path.is_file():
+        outline = outline_path.read_text(encoding="utf-8")
+        if len(outline) > OUTLINE_CAP:
+            outline = outline[:OUTLINE_CAP] + u"\n…[truncated]"
+
+    context_files = []
+    if workspace.context_dir.is_dir():
+        for f in sorted(workspace.context_dir.glob("*.md")):
+            context_files.append({"filename": f.name,
+                                  "size": len(f.read_text(encoding="utf-8"))})
+
+    state = {
+        "novel": workspace.to_dict(),
+        "chapters": items,
+        "latest": latest,
+        "latest_scene_date": latest_scene_date,
+        "outline": outline,
+        "context_files": context_files,
+        "divergences": [],
+        "history_records": 0,
+    }
+    try:
+        index = history.get_index(workspace)
+    except history.HistoryError as exc:
+        # The same author error /api/history reports as 422 — but a snapshot
+        # with one bad field is still a snapshot.
+        state["history_error"] = str(exc)
+    else:
+        state["history_records"] = len(index)
+        state["divergences"] = [
+            {"id": r.id, "claim": r.claim, "date": r.date_label,
+             "divergence_note": r.divergence_note}
+            for r in index.records if r.diverges
+        ]
+
+    stats = get_engine(workspace).stats()
+    state["memory"] = dict((k, stats.get(k, 0))
+                           for k in ("segments", "sources", "entities", "relations"))
+    state["rules"] = [{"name": e["name"], "scope": e["scope"]}
+                      for e in _markdown_entries(settings.rules_dir, workspace.rules_dir)]
+    state["skills"] = [{"name": e["name"], "scope": e["scope"]}
+                       for e in _markdown_entries(settings.skills_dir, workspace.skills_dir)]
+    return state
 
 
 # ---------------------------------------------------------------------------

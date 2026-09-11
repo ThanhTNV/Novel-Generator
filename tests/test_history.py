@@ -143,6 +143,21 @@ records:
         load_records([("project", "t.yaml", doc)])
 
 
+def test_load_index_reports_an_unquoted_impossible_date_as_a_history_error(tmp_path):
+    """
+    PyYAML builds an unquoted ``date: 1789-02-30`` with datetime.date and
+    lets that ValueError out unwrapped. Every caller guards for HistoryError
+    only, so the loader must own the translation — naming the file, since
+    the author has to go and find it.
+    """
+    (tmp_path / "alt.yaml").write_text(
+        u"records:\n  - {id: x, claim: c, date: 1789-02-30, sources: [s]}\n",
+        encoding="utf-8")
+    with pytest.raises(HistoryError) as exc:
+        load_index(("novel", str(tmp_path)))
+    assert "alt.yaml" in str(exc.value)
+
+
 def test_a_novel_may_override_a_project_record_by_id(alt):
     """That is how a novel declares where it departs from the shared record."""
     record = alt.by_id["ngoc-hoi"]

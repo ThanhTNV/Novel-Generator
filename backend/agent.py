@@ -97,6 +97,29 @@ def output_budget(target_words: Optional[int] = None) -> int:
     return max(settings.min_output_tokens, min(needed, settings.max_output_tokens))
 
 
+def compose_retrieval_query(
+    query: str,
+    characters: Optional[List[str]] = None,
+    locations: Optional[List[str]] = None,
+) -> str:
+    """
+    The one retrieval query the writer's context is built from.
+
+    Naming the characters/locations in the query seeds the entity graph
+    directly, and evidence closure brings in their surrounding prose. This is
+    a module-level function, not a detail of ``gather_context``, because
+    ``/api/memory/context`` promises to return exactly what the writer would
+    be handed — two copies of this composition would drift, and an agent would
+    then be reasoning about context the writer never sees.
+    """
+    parts = [query]
+    if characters:
+        parts.append(" ".join(characters))
+    if locations:
+        parts.append(" ".join(locations))
+    return " \n".join(parts)
+
+
 def _sources_from_used(used: List[Dict]) -> List[Dict]:
     """Shape Zero-Mem provenance for the /api/chat sources panel."""
     return [
@@ -180,20 +203,13 @@ class NovelAgent:
         """
         Retrieve chapter-writing context from Zero-Mem.
 
-        One retrieval, not four: naming the characters/locations in the query
-        seeds the entity graph directly, and evidence closure brings in their
-        surrounding prose. (The old pipeline additionally fired a hard-coded
-        English "unresolved conflict tension mystery" query at this Vietnamese
-        corpus on every call.)
+        One retrieval, not four: see ``compose_retrieval_query``. (The old
+        pipeline additionally fired a hard-coded English "unresolved conflict
+        tension mystery" query at this Vietnamese corpus on every call.)
         """
         engine = get_engine(self.novel)
-        parts = [query]
-        if characters:
-            parts.append(" ".join(characters))
-        if locations:
-            parts.append(" ".join(locations))
         result = engine.build_context(
-            query=" \n".join(parts),
+            query=compose_retrieval_query(query, characters, locations),
             max_tokens=settings.max_context_tokens,
             top_k=max(top_k or settings.default_top_k, 8),
         )
